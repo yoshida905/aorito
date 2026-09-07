@@ -1,0 +1,7 @@
+config.json
+recorded_flow.py
+downloads/
+logs/
+venv/
+*.log
+last_run_status.txt

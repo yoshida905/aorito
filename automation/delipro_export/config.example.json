@@ -1,0 +1,25 @@
+{
+  "login_url": "https://asp.delipro.jp/dmanager/deli.php",
+  "contractor_id": "LightHouse",
+  "staff_id": "0002",
+  "password": "ここに実際のパスワードを入力する（このファイルはGitに記録されません）",
+
+  "excel_path": "C:\\path\\to\\大阪GB_人時限界利益フォーマット.xlsx",
+  "sheet_name": "03_デリPRO_CSV",
+  "csv_encoding": "cp932",
+
+  "download_dir": "downloads",
+  "log_dir": "logs",
+
+  "headless": true,
+
+  "notification": {
+    "enabled": false,
+    "smtp_host": "",
+    "smtp_port": 587,
+    "smtp_user": "",
+    "smtp_password": "",
+    "mail_from": "",
+    "mail_to": []
+  }
+}
