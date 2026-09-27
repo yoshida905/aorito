@@ -1,0 +1,825 @@
+<title>金庫管理の導入ガイド</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --ink: #1b2330;
+    --muted: #5a6474;
+    --line: #dde1e7;
+    --accent: #0e6b66;
+    --accent-soft: #e2f1ef;
+    --warn: #9a5b00;
+    --warn-soft: #fbf0dc;
+    --ui-bg: #eef0f4;
+    --code-bg: #f0f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #11151b;
+      --surface: #181e26;
+      --ink: #e5e9ef;
+      --muted: #9aa4b2;
+      --line: #2b3440;
+      --accent: #56b8b0;
+      --accent-soft: #16312f;
+      --warn: #e8b25c;
+      --warn-soft: #33280f;
+      --ui-bg: #232b36;
+      --code-bg: #0d1116;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #11151b;
+    --surface: #181e26;
+    --ink: #e5e9ef;
+    --muted: #9aa4b2;
+    --line: #2b3440;
+    --accent: #56b8b0;
+    --accent-soft: #16312f;
+    --warn: #e8b25c;
+    --warn-soft: #33280f;
+    --ui-bg: #232b36;
+    --code-bg: #0d1116;
+  }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", sans-serif;
+    font-size: 16px;
+    line-height: 1.8;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding-inline: 16px; padding-block: 32px 64px; }
+  h1, h2 { font-family: "Zen Kaku Gothic New", "Noto Sans JP", sans-serif; text-wrap: balance; line-height: 1.4; }
+  h1 { font-size: 28px; margin: 0 0 8px; }
+  h2 { font-size: 20px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+  p { margin: 0 0 12px; }
+  .lead { color: var(--muted); margin-bottom: 20px; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 16px;
+           background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .facts div { display: flex; flex-direction: column; }
+  .facts b { font-size: 12px; color: var(--muted); font-weight: 500; letter-spacing: .04em; }
+  .facts span { font-weight: 700; font-variant-numeric: tabular-nums; }
+  ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: step var(--start, 0); display: grid; gap: 14px; }
+  ol.steps > li { counter-increment: step; position: relative; padding: 14px 16px 14px 60px;
+                  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+  ol.steps > li::before { content: counter(step); position: absolute; left: 14px; top: 14px; width: 32px; height: 32px;
+                          border-radius: 50%; background: var(--accent); color: var(--surface); font-weight: 700;
+                          display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+  ol.steps > li > strong:first-child { display: block; font-size: 17px; margin-bottom: 4px; }
+  .ui { display: inline-block; background: var(--ui-bg); border: 1px solid var(--line); border-radius: 4px;
+        padding: 0 6px; margin: 0 1px; font-weight: 500; overflow-wrap: anywhere; line-height: 1.6; }
+  .key { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 14px; background: var(--ui-bg);
+         border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; white-space: nowrap; }
+  .val { font-family: "JetBrains Mono", ui-monospace, monospace; background: var(--accent-soft); color: var(--ink);
+         border-radius: 4px; padding: 1px 6px; font-weight: 700; }
+  .note { background: var(--warn-soft); border-left: 4px solid var(--warn); border-radius: 0 6px 6px 0;
+          padding: 10px 14px; margin: 10px 0 0; font-size: 15px; }
+  .note b { color: var(--warn); }
+  ul.sub { margin: 6px 0 0; padding-left: 20px; }
+  ul.sub li { margin: 2px 0; }
+  .copybox { margin-top: 10px; display: grid; gap: 8px; }
+  .copyrow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button.copy { font: inherit; font-weight: 700; font-size: 16px; color: var(--surface); background: var(--accent);
+                border: 0; border-radius: 6px; padding: 10px 20px; cursor: pointer; }
+  button.copy:hover { filter: brightness(1.08); }
+  button.copy:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+  .status { color: var(--accent); font-weight: 700; }
+  details { border: 1px solid var(--line); border-radius: 6px; background: var(--code-bg); }
+  summary { cursor: pointer; padding: 6px 10px; color: var(--muted); font-size: 14px; }
+  textarea#code { width: 100%; box-sizing: border-box; height: 260px; border: 0; border-top: 1px solid var(--line);
+                  background: var(--code-bg); color: var(--ink); font-family: "JetBrains Mono", ui-monospace, monospace;
+                  font-size: 12px; line-height: 1.5; padding: 10px; resize: vertical; }
+  .check { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .check li { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px 10px 40px; position: relative; }
+  .check li::before { content: ""; position: absolute; left: 14px; top: 16px; width: 14px; height: 14px;
+                      border: 2px solid var(--accent); border-radius: 3px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  .tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 13px; color: var(--muted); font-weight: 500; }
+  tr:last-child td { border-bottom: 0; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <h1>金庫管理の導入ガイド</h1>
+  <p class="lead">「大阪GB｜現金出納帳」に、金庫の残高を3つに分けて計算する仕組みを入れる手順です。パソコンで、上から順に進めてください。所要時間はおよそ15分です。</p>
+
+  <div class="facts">
+    <div><b>作業する場所</b><span>パソコン(スマホ不可)</span></div>
+    <div><b>必要なもの</b><span>フォームとシートの編集権限</span></div>
+    <div><b>入力する数字</b><span>数えた日時と 29968</span></div>
+  </div>
+  <p class="note"><b>注意</b> 途中で分からなくなったら、その画面のスクリーンショットを送ってください。途中でやめても、スプレッドシートの記録は消えません。</p>
+
+  <h2>A. 担当者をプルダウンにする(フォーム側)</h2>
+  <ol class="steps" style="--start:0">
+    <li><strong>スプレッドシートを開く</strong>
+      「大阪GB｜現金出納帳」を開きます。</li>
+    <li><strong>フォームの編集画面を開く</strong>
+      上のメニューで <span class="ui">ツール</span> → <span class="ui">フォームを管理</span> → <span class="ui">フォームを編集</span> の順にクリックします。新しいタブでフォームの編集画面が開きます。</li>
+    <li><strong>「担当者」の質問をクリックする</strong>
+      質問の枠が選ばれた状態(左端に色の線が出る)になります。</li>
+    <li><strong>質問の種類を「プルダウン」に変える</strong>
+      質問の右上にある <span class="ui">記述式</span> と書かれた箱をクリックし、一覧から <span class="ui">プルダウン</span> を選びます。
+      <ul class="sub">
+        <li>選択肢は「オプション 1」のままで大丈夫です。名前はあとで自動で入ります。</li>
+        <li>フォームは自動で保存されます。このタブは閉じてかまいません。</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h2>B. 仕組みを貼り付ける(スプレッドシート側)</h2>
+  <ol class="steps" style="--start:4">
+    <li><strong>Apps Scriptを開く</strong>
+      スプレッドシートに戻り、上のメニューで <span class="ui">拡張機能</span> → <span class="ui">Apps Script</span> をクリックします。新しいタブで、プログラムを書く画面が開きます。</li>
+    <li><strong>最初からある文字を消す</strong>
+      左の「ファイル」の下にある <span class="ui">コード.gs</span> をクリックします。右側の広い白い部分をクリックし、<span class="key">Ctrl</span> + <span class="key">A</span>(Macは <span class="key">⌘</span> + <span class="key">A</span>)で全部選んで、<span class="key">Delete</span> で消します。
+      <p class="note"><b>確認</b> 消す前の中身が <code>function myFunction() {}</code> の3行だけでなければ、消さずに止めて連絡してください。別の仕組みが入っている可能性があります。</p>
+    </li>
+    <li><strong>このページのコードをコピーする</strong>
+      下のボタンを押すと、仕組み全体(594行)がコピーされます。
+      <div class="copybox">
+        <div class="copyrow">
+          <button class="copy" id="copyBtn" type="button">コードをコピー</button>
+          <span class="status" id="copyStatus" aria-live="polite"></span>
+        </div>
+        <details id="codeDetails">
+          <summary>コードの中身を見る(ボタンが効かないときは、ここを開いて全部選んでコピー)</summary>
+          <textarea id="code" readonly spellcheck="false">// 大阪GB 現金出納帳 金庫管理スクリプト(このファイル1つをApps Scriptに貼り付ける)
+// 元のファイル: gas-cash/Config.gs・Ledger.gs・Setup.gs・Code.gs
+
+// ===== Config.gs =====
+/**
+ * 大阪GB 現金出納帳(既存のスプレッドシート+Googleフォーム)の改修用設定。
+ *
+ * 金庫の中身は3つに分けて管理する:
+ * - 釣銭ポーチ: 現場に持っていく釣銭。金額は固定(1万円×5個)
+ * - 金庫金: 購入の現金払いに使うお金。基準額(10万円)まで補充して使う
+ * - 売上封筒: ケータリング・オードブルの現金売上。支払いには使わず、銀行へ行くときに全部入金する
+ */
+const CASH_CONFIG = {
+  // 釣銭ポーチ
+  POUCH_COUNT: 5,
+  POUCH_AMOUNT: 10000,
+
+  // 金庫金の基準額(補充するときは、この額に戻す)
+  FUND_BASE: 100000,
+  // 支払いの登録で金庫金の残高がこの額を下回ったとき、補充依頼のメールを送る
+  FUND_LOW_ALERT: 30000,
+
+  // 売上封筒を受け取ってからこの日数を超えて金庫に残っていたら、週次メールで警告する
+  ENVELOPE_ALERT_DAYS: 14,
+
+  // 週次メール(金庫確認の前に「あるはずの金額」を知らせる)の曜日と時刻
+  WEEKLY_REPORT_DAY: &#x27;MONDAY&#x27;, // SUNDAY〜SATURDAY
+  WEEKLY_REPORT_HOUR: 9,
+
+  // 通知の宛先(カンマ区切りで複数可)
+  NOTIFY_EMAILS: &#x27;yoshida@lit-house.jp&#x27;,
+
+  // 担当者名。フォームの「担当者」がプルダウン/選択式ならこの選択肢にし、
+  // 記述式なら、この名前以外を入力できないようにする(「平山 きよ美」などの表記ゆれを防ぐ)
+  STAFF_NAMES: [&#x27;迫田&#x27;, &#x27;大岡&#x27;, &#x27;吉田&#x27;, &#x27;山下&#x27;, &#x27;平山&#x27;, &#x27;藤川&#x27;, &#x27;渡邊&#x27;, &#x27;楠&#x27;, &#x27;山口&#x27;, &#x27;空野&#x27;, &#x27;花川&#x27;],
+
+  // 「処理区分」の選択肢。残高の計算はこの文字列で分類するため、フォームと一字一句そろえること。
+  // 先頭の「入金」「出金」は、金庫全体から見てお金が入るか出るか。
+  KINDS: {
+    PAY: &#x27;出金(支払い)&#x27;,
+    SALE: &#x27;入金(売上金・茶封筒へ)&#x27;,
+    REFILL: &#x27;入金(金庫金の補充)&#x27;,
+    OTHER_IN: &#x27;入金(おつり・返金の戻り・その他)&#x27;,
+    DEPOSIT: &#x27;出金(売上封筒を全部銀行へ入金)&#x27;,
+  },
+
+  // 既存のシート名
+  SHEETS: {
+    RESPONSES: &#x27;フォーム回答&#x27;,
+    HISTORY: &#x27;入出金履歴&#x27;,
+    BALANCE: &#x27;現金残高&#x27;,
+    MONTHLY: &#x27;月別集計&#x27;,
+  },
+
+  // フォーム回答シートの列(既存フォームの質問順)
+  COLS: {
+    TIMESTAMP: &#x27;A&#x27;,
+    KIND: &#x27;B&#x27;,
+    DATE: &#x27;C&#x27;,
+    AMOUNT: &#x27;D&#x27;,
+    DESC: &#x27;E&#x27;,
+    PARTNER: &#x27;F&#x27;,
+    STAFF: &#x27;G&#x27;,
+    RECEIPT: &#x27;H&#x27;,
+    NOTE: &#x27;I&#x27;,
+  },
+
+  // 既存フォームの質問タイトル(namedValues のキー)
+  Q: {
+    KIND: &#x27;処理区分&#x27;,
+    DATE: &#x27;取引日&#x27;,
+    AMOUNT: &#x27;金額&#x27;,
+    DESC: &#x27;内容・用途&#x27;,
+    PARTNER: &#x27;相手先／取引先&#x27;,
+    STAFF: &#x27;担当者&#x27;,
+  },
+};
+
+// 現金残高シートのA列の見出し(GASはこの見出しで行を探して値を読む)
+const BAL = {
+  TOTAL: &#x27;金庫にあるはずの合計&#x27;,
+  POUCH: &#x27;① 釣銭ポーチ&#x27;,
+  FUND: &#x27;② 金庫金(支払い用)&#x27;,
+  FUND_COUNTED: &#x27;　数えた金額(基準)&#x27;,
+  FUND_IN: &#x27;　基準日時より後の入金(補充・おつり等)&#x27;,
+  FUND_OUT: &#x27;　基準日時より後の支払い&#x27;,
+  REFILL: &#x27;　補充が必要な額&#x27;,
+  ENVELOPE: &#x27;③ 売上封筒(銀行へ未入金)&#x27;,
+  ENVELOPE_COUNT: &#x27;　封筒の件数&#x27;,
+  BASE_TIME: &#x27;基準日時(金庫を数えた日時)&#x27;,
+  LAST_DEPOSIT: &#x27;最後に売上封筒を銀行へ入金した日時&#x27;,
+  ENVELOPE_LIST: &#x27;未入金の売上封筒&#x27;,
+};
+
+// ===== Ledger.gs =====
+/**
+ * 計算ロジック(Googleのサービスを使わない純粋な関数だけを置く)。
+ * tests/ledger.test.js から Node.js でテストできるようにしている。
+ *
+ * 残高そのものは「現金残高」シートの関数で計算する。ここにあるのは、
+ * 関数では書きにくい通知の判定と、シートの関数を組み立てる処理だけ。
+ */
+
+/** 「30,000」「３００００円」「¥30000」などを数値にする。数字でなければ NaN */
+function parseAmount_(value) {
+  if (typeof value === &#x27;number&#x27;) return value;
+  const s = String(value == null ? &#x27;&#x27; : value)
+    .replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xfee0); })
+    .replace(/[,，円\s¥￥]/g, &#x27;&#x27;);
+  if (!/^\d+$/.test(s)) return NaN;
+  return Number(s);
+}
+
+/** Date かどうか(スプレッドシートの日付セルは Date で届く) */
+function isDate_(v) {
+  return Object.prototype.toString.call(v) === &#x27;[object Date]&#x27; &amp;&amp; !isNaN(v.getTime());
+}
+
+/** 「2026/09/27 15:00」「2026-09-27」を Date にする。読めなければ null */
+function parseDateTime_(value) {
+  if (isDate_(value)) return value;
+  const m = String(value || &#x27;&#x27;).match(/(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})日?(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] || 0), Number(m[5] || 0));
+}
+
+function formatMd_(date) {
+  return (date.getMonth() + 1) + &#x27;/&#x27; + date.getDate();
+}
+
+function formatYen_(n) {
+  const sign = n &lt; 0 ? &#x27;-&#x27; : &#x27;&#x27;;
+  return sign + String(Math.round(Math.abs(n))).replace(/\B(?=(\d{3})+(?!\d))/g, &#x27;,&#x27;) + &#x27;円&#x27;;
+}
+
+function daysBetween_(from, to) {
+  const a = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const b = new Date(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((b - a) / 86400000);
+}
+
+/**
+ * 売上封筒の銀行入金を登録したとき、登録済みの未入金封筒の合計と入金額を比べる。
+ * 未入金の封筒 = 基準日時と直前の銀行入金より後に登録され、今回の登録より前に登録された売上。
+ * @param {{ts: Date, kind: string, amount: number}[]} rows フォーム回答(今回の行も含んでよい)
+ * @param {Date} baseTime 基準日時(金庫を数えた日時)
+ * @param {Date} submitTime 今回の登録日時
+ * @param {number} amount 今回登録した入金額
+ */
+function checkDeposit_(rows, baseTime, submitTime, amount) {
+  const K = CASH_CONFIG.KINDS;
+  let from = baseTime;
+  rows.forEach(function (r) {
+    if (r.kind === K.DEPOSIT &amp;&amp; r.ts &lt; submitTime &amp;&amp; r.ts &gt; from) from = r.ts;
+  });
+  const envelopes = rows.filter(function (r) {
+    return r.kind === K.SALE &amp;&amp; r.ts &gt; from &amp;&amp; r.ts &lt; submitTime;
+  });
+  const bookTotal = envelopes.reduce(function (s, r) { return s + (Number(r.amount) || 0); }, 0);
+  return { envelopes: envelopes, bookTotal: bookTotal, diff: amount - bookTotal };
+}
+
+/**
+ * 支払いの登録で、金庫金の残高が下限をまたいで下回ったか。
+ * 下回った状態で登録が続くたびにメールが届かないよう、またいだときだけ true にする。
+ */
+function crossedLowAlert_(fundAfter, paidAmount) {
+  const limit = CASH_CONFIG.FUND_LOW_ALERT;
+  return fundAfter &lt; limit &amp;&amp; fundAfter + paidAmount &gt;= limit;
+}
+
+/** 未入金の封筒に経過日数を付ける(古い順) */
+function envelopeAges_(list, today) {
+  return list
+    .filter(function (e) { return isDate_(e.date); })
+    .map(function (e) {
+      return Object.assign({}, e, { days: daysBetween_(e.date, today) });
+    })
+    .sort(function (a, b) { return a.date - b.date; });
+}
+
+/** 週次メールの本文 */
+function weeklyReportLines_(b, envelopes) {
+  const cfg = CASH_CONFIG;
+  const lines = [
+    &#x27;金庫確認の日です。下の金額を金庫確認表の青い欄に書き写してから、2人で数えてください。&#x27;,
+    &#x27;&#x27;,
+    &#x27;金庫にあるはずの合計: &#x27; + formatYen_(b.total),
+    &#x27;&#x27;,
+    &#x27;1. 釣銭ポーチ: &#x27; + formatYen_(b.pouch) + &#x27;(&#x27; + formatYen_(cfg.POUCH_AMOUNT) + &#x27; × &#x27; + cfg.POUCH_COUNT + &#x27;個)&#x27;,
+    &#x27;2. 金庫金: &#x27; + formatYen_(b.fund) + &#x27;(基準額 &#x27; + formatYen_(cfg.FUND_BASE) + &#x27;、補充が必要な額 &#x27; + formatYen_(b.refill) + &#x27;)&#x27;,
+    &#x27;3. 売上封筒: &#x27; + formatYen_(b.envelope) + &#x27;(&#x27; + envelopes.length + &#x27;件)&#x27;,
+  ];
+  envelopes.forEach(function (e) {
+    lines.push(&#x27;   ・&#x27; + formatMd_(e.date) + &#x27;受取 &#x27; + e.partner + &#x27; &#x27; + formatYen_(e.amount) +
+      &#x27;(&#x27; + e.days + &#x27;日経過&#x27; + (e.days &gt; cfg.ENVELOPE_ALERT_DAYS ? &#x27; ※入金が遅れています&#x27; : &#x27;&#x27;) + &#x27;)&#x27;);
+  });
+  if (b.refill &gt; 0) {
+    lines.push(&#x27;&#x27;, &#x27;銀行へ行くときに &#x27; + formatYen_(b.refill) +
+      &#x27; を引き出して金庫金を基準額に戻し、フォームで「&#x27; + cfg.KINDS.REFILL + &#x27;」を登録してください。&#x27;);
+  }
+  const late = envelopes.filter(function (e) { return e.days &gt; cfg.ENVELOPE_ALERT_DAYS; });
+  if (late.length) {
+    lines.push(&#x27;&#x27;, &#x27;受け取りから&#x27; + cfg.ENVELOPE_ALERT_DAYS + &#x27;日を超えた売上封筒が &#x27; + late.length +
+      &#x27;件あります。次に銀行へ行くときに必ず入金してください。&#x27;);
+  }
+  return lines;
+}
+
+/**
+ * 現金残高シートに書く内容(A列の見出し, B列の値または関数, C列の説明)。
+ * フォーム回答シートを直接参照するので、行が増えても範囲切れにならない。
+ */
+function balanceSheetRows_(fundCounted, baseTime) {
+  const cfg = CASH_CONFIG;
+  const K = cfg.KINDS;
+  const C = cfg.COLS;
+  const R = &quot;&#x27;&quot; + cfg.SHEETS.RESPONSES + &quot;&#x27;!&quot;;
+  const col = function (c) { return R + c + &#x27;2:&#x27; + c; };
+  const ts = col(C.TIMESTAMP), kind = col(C.KIND), amt = col(C.AMOUNT);
+  const sumAfter = function (k, cell) {
+    return &#x27;SUMIFS(&#x27; + amt + &#x27;,&#x27; + kind + &#x27;,&quot;&#x27; + k + &#x27;&quot;,&#x27; + ts + &#x27;,&quot;&gt;&quot;&amp;&#x27; + cell + &#x27;)&#x27;;
+  };
+  // 行番号は下の配列の並びで決まる(4行目から)
+  const rows = [
+    [BAL.TOTAL, &#x27;=B5+B6+B11&#x27;, &#x27;①+②+③。週1回の金庫確認で、実際に数えた合計と比べる&#x27;],
+    [BAL.POUCH, cfg.POUCH_COUNT * cfg.POUCH_AMOUNT, formatYen_(cfg.POUCH_AMOUNT) + &#x27;×&#x27; + cfg.POUCH_COUNT + &#x27;個(固定)&#x27;],
+    [BAL.FUND, &#x27;=B7+B8-B9&#x27;, &#x27;購入の現金払いに使うお金&#x27;],
+    [BAL.FUND_COUNTED, fundCounted, &#x27;基準日時に数えた金庫金(ポーチ・売上封筒を除く)&#x27;],
+    [BAL.FUND_IN, &#x27;=&#x27; + sumAfter(K.REFILL, &#x27;$B$14&#x27;) + &#x27;+&#x27; + sumAfter(K.OTHER_IN, &#x27;$B$14&#x27;), &#x27;&#x27;],
+    [BAL.FUND_OUT, &#x27;=&#x27; + sumAfter(K.PAY, &#x27;$B$14&#x27;), &#x27;&#x27;],
+    [BAL.REFILL, &#x27;=MAX(0,&#x27; + cfg.FUND_BASE + &#x27;-B6)&#x27;, &#x27;基準額 &#x27; + formatYen_(cfg.FUND_BASE) + &#x27; に戻すための額&#x27;],
+    [BAL.ENVELOPE, &#x27;=&#x27; + sumAfter(K.SALE, &#x27;$B$15&#x27;), &#x27;銀行へ行くときに全部入金する&#x27;],
+    [BAL.ENVELOPE_COUNT, &#x27;=COUNTIFS(&#x27; + kind + &#x27;,&quot;&#x27; + K.SALE + &#x27;&quot;,&#x27; + ts + &#x27;,&quot;&gt;&quot;&amp;$B$15)&#x27;, &#x27;&#x27;],
+    [&#x27;&#x27;, &#x27;&#x27;, &#x27;&#x27;],
+    [BAL.BASE_TIME, baseTime, &#x27;この日時より後に登録したものだけを計算する。金庫を数え直したら、ここと数えた金額を更新&#x27;],
+    [BAL.LAST_DEPOSIT, &#x27;=MAX($B$14,IFERROR(MAXIFS(&#x27; + ts + &#x27;,&#x27; + kind + &#x27;,&quot;&#x27; + K.DEPOSIT + &#x27;&quot;),0))&#x27;, &#x27;自動&#x27;],
+  ];
+  return rows;
+}
+
+/** 未入金の売上封筒の一覧(現金残高シートの18行目から)を出す関数 */
+function envelopeListFormula_() {
+  const cfg = CASH_CONFIG;
+  const C = cfg.COLS;
+  const R = &quot;&#x27;&quot; + cfg.SHEETS.RESPONSES + &quot;&#x27;!&quot;;
+  const col = function (c) { return R + c + &#x27;2:&#x27; + c; };
+  return &#x27;=IFERROR(FILTER({&#x27; + [C.DATE, C.PARTNER, C.DESC, C.AMOUNT, C.STAFF, C.TIMESTAMP].map(col).join(&#x27;,&#x27;) +
+    &#x27;},&#x27; + col(C.KIND) + &#x27;=&quot;&#x27; + cfg.KINDS.SALE + &#x27;&quot;,&#x27; + col(C.TIMESTAMP) + &#x27;&gt;$B$15),&quot;なし&quot;)&#x27;;
+}
+
+/** 担当者名だけを受け付ける入力チェックの正規表現(前後の半角・全角スペースは許す) */
+function staffPattern_(names) {
+  const escaped = names.map(function (n) { return n.replace(/[.*+?^${}()|[\]\\]/g, &#x27;\\$&amp;&#x27;); });
+  return &#x27;^[\\s\u3000]*(&#x27; + escaped.join(&#x27;|&#x27;) + &#x27;)[\\s\u3000]*$&#x27;;
+}
+
+// ===== Setup.gs =====
+/**
+ * 初期設定。「大阪GB｜現金出納帳」スプレッドシートに紐づくApps Scriptから、最初に1回だけ実行する。
+ *
+ * 1. 改修前の「現金残高」シートを「現金残高(改修前)」として残す
+ * 2. 「現金残高」を、釣銭ポーチ・金庫金・売上封筒の3つに分けた計算に作り直す
+ * 3. 「入出金履歴」の増減額、「月別集計」、「フォーム回答」右側の残高表示を新しい処理区分に対応させる
+ * 4. フォームの「処理区分」の選択肢を5つに増やす
+ * 5. フォーム送信時・週次のトリガーを登録する
+ */
+function setupCashManagement() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const cfg = CASH_CONFIG;
+
+  const t = ui.prompt(&#x27;1/2 基準日時&#x27;,
+    &#x27;金庫を数えた日時を入力してください(例: 2026/09/27 15:00)。\nこの日時より後に登録したものだけが残高の計算に入ります。&#x27;,
+    ui.ButtonSet.OK_CANCEL);
+  if (t.getSelectedButton() !== ui.Button.OK) return;
+  const baseTime = parseDateTime_(t.getResponseText());
+  if (!baseTime) {
+    ui.alert(&#x27;日時が読み取れませんでした: &#x27; + t.getResponseText());
+    return;
+  }
+  const f = ui.prompt(&#x27;2/2 数えた金庫金&#x27;,
+    &#x27;数えた金額から、釣銭ポーチ(&#x27; + formatYen_(cfg.POUCH_COUNT * cfg.POUCH_AMOUNT) + &#x27;)と売上封筒を除いた金額を数字で入力してください。&#x27;,
+    ui.ButtonSet.OK_CANCEL);
+  if (f.getSelectedButton() !== ui.Button.OK) return;
+  const fundCounted = parseAmount_(f.getResponseText());
+  if (!(fundCounted &gt;= 0)) {
+    ui.alert(&#x27;金額が読み取れませんでした: &#x27; + f.getResponseText());
+    return;
+  }
+
+  backupBalanceSheet_(ss);
+  writeBalanceSheet_(ss, fundCounted, baseTime);
+  updateHistoryAndMonthly_(ss);
+  updateResponseSideSummary_(ss);
+  const formMsg = updateFormChoices_(ss) + &#x27;\n&#x27; + updateStaffItem_(ss);
+  installTriggers_(ss);
+
+  ui.alert(&#x27;初期設定が完了しました。\n\n&#x27; + formMsg +
+    &#x27;\n\n基準日時より前の取引は、今後フォームに登録しないでください(数えた金額に含まれています)。&#x27;);
+}
+
+function backupBalanceSheet_(ss) {
+  const name = CASH_CONFIG.SHEETS.BALANCE + &#x27;(改修前)&#x27;;
+  const src = ss.getSheetByName(CASH_CONFIG.SHEETS.BALANCE);
+  if (!src || ss.getSheetByName(name)) return;
+  const copy = src.copyTo(ss).setName(name);
+  // 関数のままだと新しい処理区分で0円になるため、改修前の値で固定しておく
+  const range = copy.getDataRange();
+  range.setValues(range.getValues());
+}
+
+function writeBalanceSheet_(ss, fundCounted, baseTime) {
+  const name = CASH_CONFIG.SHEETS.BALANCE;
+  const sheet = ss.getSheetByName(name) || ss.insertSheet(name, 0);
+  sheet.clear();
+  sheet.getRange(&#x27;A1&#x27;).setValue(&#x27;大阪GB｜現金残高(自動計算)&#x27;).setFontSize(14).setFontWeight(&#x27;bold&#x27;);
+  sheet.getRange(&#x27;A3:C3&#x27;).setValues([[&#x27;項目&#x27;, &#x27;金額(円)&#x27;, &#x27;説明&#x27;]]).setFontWeight(&#x27;bold&#x27;).setBackground(&#x27;#d9d9d9&#x27;);
+
+  const rows = balanceSheetRows_(fundCounted, baseTime);
+  sheet.getRange(4, 1, rows.length, 3).setValues(rows);
+  sheet.getRange(&#x27;B4:B12&#x27;).setNumberFormat(&#x27;#,##0&#x27;);
+  sheet.getRange(&#x27;B12&#x27;).setNumberFormat(&#x27;0&quot;件&quot;&#x27;);
+  sheet.getRange(&#x27;B14:B15&#x27;).setNumberFormat(&#x27;yyyy/mm/dd hh:mm&#x27;);
+  sheet.getRange(&#x27;A4:B4&#x27;).setFontWeight(&#x27;bold&#x27;).setFontSize(12).setBackground(&#x27;#fff2cc&#x27;);
+  [&#x27;A5:B5&#x27;, &#x27;A6:B6&#x27;, &#x27;A11:B11&#x27;].forEach(function (a) { sheet.getRange(a).setFontWeight(&#x27;bold&#x27;); });
+  sheet.getRange(&#x27;B7&#x27;).setBackground(&#x27;#ddebf7&#x27;);
+  sheet.getRange(&#x27;B14&#x27;).setBackground(&#x27;#ddebf7&#x27;);
+
+  sheet.getRange(&#x27;A17&#x27;).setValue(BAL.ENVELOPE_LIST).setFontWeight(&#x27;bold&#x27;);
+  sheet.getRange(&#x27;A18:G18&#x27;)
+    .setValues([[&#x27;受取日&#x27;, &#x27;相手先&#x27;, &#x27;内容&#x27;, &#x27;金額&#x27;, &#x27;担当者&#x27;, &#x27;登録日時&#x27;, &#x27;経過日数&#x27;]])
+    .setFontWeight(&#x27;bold&#x27;).setBackground(&#x27;#d9d9d9&#x27;);
+  sheet.getRange(&#x27;A19&#x27;).setFormula(envelopeListFormula_());
+  sheet.getRange(&#x27;G19&#x27;).setFormula(&#x27;=ARRAYFORMULA(IF(ISNUMBER(A19:A),TODAY()-A19:A,&quot;&quot;))&#x27;);
+  sheet.getRange(&#x27;A19:A&#x27;).setNumberFormat(&#x27;yyyy/mm/dd&#x27;);
+  sheet.getRange(&#x27;D19:D&#x27;).setNumberFormat(&#x27;#,##0&#x27;);
+  sheet.getRange(&#x27;F19:F&#x27;).setNumberFormat(&#x27;yyyy/mm/dd hh:mm&#x27;);
+
+  sheet.setColumnWidth(1, 300);
+  sheet.setColumnWidth(2, 140);
+  sheet.setColumnWidth(3, 460);
+  sheet.setFrozenRows(0);
+}
+
+function updateHistoryAndMonthly_(ss) {
+  const cfg = CASH_CONFIG;
+  const history = ss.getSheetByName(cfg.SHEETS.HISTORY);
+  if (history) {
+    // 「入金(…)」「出金(…)」の先頭2文字で増減を判定する(改修前の「入金」「出金」もそのまま扱える)
+    history.getRange(&#x27;J1&#x27;).setFormula(
+      &#x27;={&quot;増減額&quot;;IF(A2:A1000=&quot;&quot;,&quot;&quot;,IF(LEFT(B2:B1000,2)=&quot;入金&quot;,D2:D1000,IF(LEFT(B2:B1000,2)=&quot;出金&quot;,-D2:D1000,&quot;&quot;)))}&#x27;);
+  }
+  const monthly = ss.getSheetByName(cfg.SHEETS.MONTHLY);
+  if (monthly) {
+    const R = &quot;&#x27;&quot; + cfg.SHEETS.RESPONSES + &quot;&#x27;!&quot;;
+    monthly.clear();
+    monthly.getRange(&#x27;A1&#x27;).setFormula(
+      &#x27;=IFERROR(QUERY({ARRAYFORMULA(IF(ISNUMBER(&#x27; + R + &#x27;C2:C),TEXT(&#x27; + R + &#x27;C2:C,&quot;yyyy-mm&quot;),&quot;&quot;)),&#x27; +
+      R + &#x27;B2:B,&#x27; + R + &#x27;D2:D},&quot;select Col1, sum(Col3) where Col1 &lt;&gt; \&#x27;\&#x27; group by Col1 pivot Col2 label Col1 \&#x27;年月\&#x27;&quot;,0),&quot;データなし&quot;)&#x27;);
+  }
+}
+
+/** フォーム回答シートの右側(L〜M列)にある残高表示を、新しい現金残高シートに合わせる */
+function updateResponseSideSummary_(ss) {
+  const sheet = ss.getSheetByName(CASH_CONFIG.SHEETS.RESPONSES);
+  if (!sheet || sheet.getRange(&#x27;L2&#x27;).getValue() !== &#x27;開始残高&#x27;) return; // 想定と違う場合は触らない
+  const B = &quot;&#x27;&quot; + CASH_CONFIG.SHEETS.BALANCE + &quot;&#x27;!&quot;;
+  sheet.getRange(&#x27;L2:M5&#x27;).setValues([
+    [BAL.TOTAL, &#x27;=&#x27; + B + &#x27;B4&#x27;],
+    [&#x27;金庫金(支払い用)&#x27;, &#x27;=&#x27; + B + &#x27;B6&#x27;],
+    [&#x27;売上封筒(未入金)&#x27;, &#x27;=&#x27; + B + &#x27;B11&#x27;],
+    [&#x27;補充が必要な額&#x27;, &#x27;=&#x27; + B + &#x27;B10&#x27;],
+  ]);
+  sheet.getRange(&#x27;L29&#x27;).setValue(&#x27;金庫を数え直したら「現金残高」のB7(数えた金額)とB14(基準日時)を更新。&#x27;);
+  sheet.getRange(&#x27;L30&#x27;).setValue(&#x27;処理区分の文字を書き換えると計算から外れるので注意。&#x27;);
+}
+
+/** フォームの「処理区分」の選択肢を新しい5つにする */
+function updateFormChoices_(ss) {
+  const cfg = CASH_CONFIG;
+  const url = ss.getFormUrl();
+  if (!url) return &#x27;このスプレッドシートに紐づくフォームが見つからなかったため、フォームの選択肢は変更していません。&#x27;;
+  const form = FormApp.openByUrl(url);
+  const item = form.getItems().filter(function (it) { return it.getTitle() === cfg.Q.KIND; })[0];
+  if (!item) return &#x27;フォームに「&#x27; + cfg.Q.KIND + &#x27;」の質問が見つからなかったため、選択肢は変更していません。&#x27;;
+
+  const K = cfg.KINDS;
+  const values = [K.PAY, K.SALE, K.REFILL, K.OTHER_IN, K.DEPOSIT];
+  const help = &#x27;支払い → &#x27; + K.PAY + &#x27;\n&#x27; +
+    &#x27;ケータリング・オードブルの現金売上(茶封筒に入れて金庫へ) → &#x27; + K.SALE + &#x27;\n&#x27; +
+    &#x27;銀行から引き出して金庫金に足した → &#x27; + K.REFILL + &#x27;\n&#x27; +
+    &#x27;おつりの戻り・返金・空き瓶代など → &#x27; + K.OTHER_IN + &#x27;\n&#x27; +
+    &#x27;金庫の売上封筒を全部銀行に入金した(金額は入金した合計) → &#x27; + K.DEPOSIT;
+  const type = item.getType();
+  if (type === FormApp.ItemType.MULTIPLE_CHOICE) {
+    item.asMultipleChoiceItem().setChoiceValues(values).setHelpText(help);
+  } else if (type === FormApp.ItemType.LIST) {
+    item.asListItem().setChoiceValues(values).setHelpText(help);
+  } else {
+    return &#x27;「&#x27; + cfg.Q.KIND + &#x27;」が選択式ではないため、選択肢は変更していません。手順書を見て手で変更してください。&#x27;;
+  }
+  return &#x27;フォームの「&#x27; + cfg.Q.KIND + &#x27;」の選択肢を5つに変更しました。&#x27;;
+}
+
+/**
+ * フォームの「担当者」を Config.gs の STAFF_NAMES に合わせる。メニューからも実行できる。
+ * 質問を作り直すと回答シートの列がずれるため、既存の質問をそのまま使う:
+ * - プルダウン/選択式 → 選択肢を担当者名にする
+ * - 記述式 → 担当者名以外を入力できないようにする
+ */
+function updateStaffItem_(ss) {
+  const cfg = CASH_CONFIG;
+  const names = cfg.STAFF_NAMES;
+  if (!names.length) return &#x27;&#x27;;
+  const url = (ss || SpreadsheetApp.getActiveSpreadsheet()).getFormUrl();
+  if (!url) return &#x27;フォームが見つからないため、担当者は変更していません。&#x27;;
+  const item = FormApp.openByUrl(url).getItems()
+    .filter(function (it) { return it.getTitle() === cfg.Q.STAFF; })[0];
+  if (!item) return &#x27;フォームに「&#x27; + cfg.Q.STAFF + &#x27;」の質問が見つからないため、担当者は変更していません。&#x27;;
+
+  const type = item.getType();
+  if (type === FormApp.ItemType.LIST) {
+    item.asListItem().setChoiceValues(names).setRequired(true);
+    return &#x27;「担当者」のプルダウンを&#x27; + names.length + &#x27;名にしました。&#x27;;
+  }
+  if (type === FormApp.ItemType.MULTIPLE_CHOICE) {
+    item.asMultipleChoiceItem().setChoiceValues(names).setRequired(true);
+    return &#x27;「担当者」の選択肢を&#x27; + names.length + &#x27;名にしました。&#x27;;
+  }
+  if (type === FormApp.ItemType.TEXT) {
+    const validation = FormApp.createTextValidation()
+      .setHelpText(&#x27;次の名前(名字)で入力してください: &#x27; + names.join(&#x27;・&#x27;))
+      .requireTextMatchesPattern(staffPattern_(names))
+      .build();
+    item.asTextItem().setValidation(validation).setHelpText(&#x27;名字だけ: &#x27; + names.join(&#x27;・&#x27;)).setRequired(true);
+    return &#x27;「担当者」は記述式のため、&#x27; + names.length + &#x27;名の名字以外は入力できないようにしました。&#x27; +
+      &#x27;プルダウンにしたい場合は、フォームの編集画面で質問の種類を「プルダウン」に変えてから、&#x27; +
+      &#x27;メニュー「金庫 &gt; 担当者の選択肢を反映」を実行してください。&#x27;;
+  }
+  return &#x27;「担当者」の質問の種類に対応していないため、変更していません。&#x27;;
+}
+
+/** メニューから担当者の選択肢だけを反映する */
+function applyStaffNames() {
+  SpreadsheetApp.getUi().alert(updateStaffItem_() || &#x27;Config.gs の STAFF_NAMES が空です。&#x27;);
+}
+
+function installTriggers_(ss) {
+  const cfg = CASH_CONFIG;
+  // 二重登録を防ぐため、同じ関数の既存トリガーは消してから作る
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if ([&#x27;onCashFormSubmit&#x27;, &#x27;sendWeeklyReport&#x27;].indexOf(t.getHandlerFunction()) !== -1) {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger(&#x27;onCashFormSubmit&#x27;).forSpreadsheet(ss).onFormSubmit().create();
+  ScriptApp.newTrigger(&#x27;sendWeeklyReport&#x27;).timeBased()
+    .onWeekDay(ScriptApp.WeekDay[cfg.WEEKLY_REPORT_DAY])
+    .atHour(cfg.WEEKLY_REPORT_HOUR).create();
+}
+
+// ===== Code.gs =====
+/**
+ * 大阪GB 現金出納帳 フォーム送信時・週次の自動処理。
+ *
+ * 残高は「現金残高」シートの関数で計算される。このスクリプトは、その値を読んで
+ * 補充が必要なとき・銀行入金額が合わないときに通知し、週1回「あるはずの金額」を知らせる。
+ * セットアップは Setup.gs の setupCashManagement を1回だけ実行する。
+ */
+
+/** スプレッドシートを開いたときにメニューを追加する */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu(&#x27;金庫&#x27;)
+    .addItem(&#x27;週次メールを今すぐ送る&#x27;, &#x27;sendWeeklyReport&#x27;)
+    .addItem(&#x27;担当者の選択肢を反映&#x27;, &#x27;applyStaffNames&#x27;)
+    .addSeparator()
+    .addItem(&#x27;初期設定(最初に1回だけ)&#x27;, &#x27;setupCashManagement&#x27;)
+    .addToUi();
+}
+
+/**
+ * フォーム送信をトリガーに実行される。
+ * @param {GoogleAppsScript.Events.SheetsOnFormSubmit} e
+ */
+function onCashFormSubmit(e) {
+  try {
+    const cfg = CASH_CONFIG;
+    const named = (e &amp;&amp; e.namedValues) || {};
+    const get = function (title) { return String((named[title] || [&#x27;&#x27;])[0] || &#x27;&#x27;).trim(); };
+    const kind = get(cfg.Q.KIND);
+    const amount = parseAmount_(get(cfg.Q.AMOUNT));
+    const msgs = [];
+
+    if (!(amount &gt; 0)) {
+      msgs.push(&#x27;金額が読み取れませんでした(&#x27; + get(cfg.Q.AMOUNT) + &#x27;)。フォーム回答シートを直してください。&#x27;);
+    }
+    if (Object.keys(cfg.KINDS).map(function (k) { return cfg.KINDS[k]; }).indexOf(kind) === -1) {
+      msgs.push(&#x27;処理区分「&#x27; + kind + &#x27;」は残高の計算に入りません。フォームの選択肢を確認してください。&#x27;);
+    }
+
+    SpreadsheetApp.flush();
+    const bal = readBalance_();
+
+    if (kind === cfg.KINDS.PAY &amp;&amp; amount &gt; 0) {
+      if (bal.fund &lt; 0) {
+        msgs.push(&#x27;金庫金の残高がマイナス(&#x27; + formatYen_(bal.fund) + &#x27;)です。登録漏れ・二重登録がないか確認してください。&#x27;);
+      } else if (crossedLowAlert_(bal.fund, amount)) {
+        msgs.push(&#x27;金庫金の残高が &#x27; + formatYen_(bal.fund) + &#x27; になりました。&#x27; + formatYen_(bal.refill) +
+          &#x27; の補充が必要です(次に銀行へ行くときに引き出す)。&#x27;);
+      }
+    }
+
+    if (kind === cfg.KINDS.DEPOSIT &amp;&amp; amount &gt; 0 &amp;&amp; e &amp;&amp; e.range) {
+      const sheet = e.range.getSheet();
+      const submitTime = sheet.getRange(e.range.getRow(), 1).getValue();
+      const result = checkDeposit_(readResponses_(sheet), bal.baseTime, submitTime, amount);
+      if (!result.envelopes.length) {
+        msgs.push(&#x27;銀行入金が登録されましたが、未入金の売上封筒が登録されていません。売上の登録漏れがないか確認してください。&#x27;);
+      } else if (result.diff !== 0) {
+        msgs.push(&#x27;銀行への入金額が、登録済みの売上封筒の合計と合いません。\n&#x27; +
+          &#x27;封筒の合計 &#x27; + formatYen_(result.bookTotal) + &#x27;(&#x27; + result.envelopes.length + &#x27;件) / 入金額 &#x27; +
+          formatYen_(amount) + &#x27; / 差額 &#x27; + formatYen_(result.diff));
+      }
+    }
+
+    if (msgs.length) {
+      const body = msgs.concat([&#x27;&#x27;, &#x27;登録内容:&#x27;])
+        .concat(Object.keys(named).filter(function (k) { return get(k); })
+          .map(function (k) { return &#x27;・&#x27; + k + &#x27;: &#x27; + get(k); }))
+        .concat([&#x27;&#x27;, &#x27;スプレッドシート: &#x27; + SpreadsheetApp.getActiveSpreadsheet().getUrl()]);
+      notify_(&#x27;【金庫】確認が必要な登録があります&#x27;, body.join(&#x27;\n&#x27;));
+    }
+  } catch (err) {
+    Logger.log(&#x27;onCashFormSubmit failed: &#x27; + err);
+    notify_(&#x27;【エラー】金庫の現金管理 自動処理&#x27;, String(err &amp;&amp; err.stack || err));
+  }
+}
+
+/** 週1回、金庫を数える前に「あるはずの金額」をメールで知らせる */
+function sendWeeklyReport() {
+  const bal = readBalance_();
+  const envelopes = envelopeAges_(readEnvelopeList_(), new Date());
+  const lines = weeklyReportLines_(bal, envelopes)
+    .concat([&#x27;&#x27;, &#x27;スプレッドシート: &#x27; + SpreadsheetApp.getActiveSpreadsheet().getUrl()]);
+  notify_(&#x27;【金庫確認】あるはずの金額 &#x27; + formatYen_(bal.total), lines.join(&#x27;\n&#x27;));
+}
+
+/** 現金残高シートのA列の見出しで行を探し、B列の値を読む */
+function readBalance_() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CASH_CONFIG.SHEETS.BALANCE);
+  const values = sheet.getRange(1, 1, 16, 2).getValues();
+  const byLabel = {};
+  values.forEach(function (r) { if (r[0]) byLabel[String(r[0])] = r[1]; });
+  const need = function (label) {
+    if (!(label in byLabel)) throw new Error(&#x27;現金残高シートに「&#x27; + label + &#x27;」の行がありません。初期設定を実行してください&#x27;);
+    return byLabel[label];
+  };
+  return {
+    total: Number(need(BAL.TOTAL)),
+    pouch: Number(need(BAL.POUCH)),
+    fund: Number(need(BAL.FUND)),
+    refill: Number(need(BAL.REFILL)),
+    envelope: Number(need(BAL.ENVELOPE)),
+    baseTime: need(BAL.BASE_TIME),
+  };
+}
+
+/** 現金残高シートの「未入金の売上封筒」一覧を読む */
+function readEnvelopeList_() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CASH_CONFIG.SHEETS.BALANCE);
+  const last = sheet.getLastRow();
+  if (last &lt; 19) return [];
+  return sheet.getRange(19, 1, last - 18, 6).getValues()
+    .filter(function (r) { return isDate_(r[0]); })
+    .map(function (r) { return { date: r[0], partner: r[1] || r[2], amount: Number(r[3]) || 0 }; });
+}
+
+/** フォーム回答シートから、登録日時・処理区分・金額を読む */
+function readResponses_(sheet) {
+  const last = sheet.getLastRow();
+  if (last &lt; 2) return [];
+  return sheet.getRange(2, 1, last - 1, 4).getValues()
+    .filter(function (r) { return isDate_(r[0]); })
+    .map(function (r) { return { ts: r[0], kind: String(r[1]), amount: parseAmount_(r[3]) }; });
+}
+
+function notify_(subject, body) {
+  const to = CASH_CONFIG.NOTIFY_EMAILS;
+  if (!to) return;
+  MailApp.sendEmail(to, subject, body);
+}
+</textarea>
+        </details>
+      </div>
+    </li>
+    <li><strong>Apps Scriptに貼り付けて保存する</strong>
+      Apps Scriptのタブに戻り、白い部分をクリックして <span class="key">Ctrl</span> + <span class="key">V</span>(Macは <span class="key">⌘</span> + <span class="key">V</span>)で貼り付けます。続けて <span class="key">Ctrl</span> + <span class="key">S</span>(Macは <span class="key">⌘</span> + <span class="key">S</span>)で保存します。
+      <ul class="sub"><li>上部の「コード.gs」の横に出ていた丸い印が消えれば保存できています。</li></ul>
+    </li>
+    <li><strong>スプレッドシートを再読み込みする</strong>
+      スプレッドシートのタブに戻り、<span class="key">F5</span>(Macは <span class="key">⌘</span> + <span class="key">R</span>)を押します。10秒ほど待つと、上のメニューの <span class="ui">ヘルプ</span> の右に <span class="ui">金庫</span> が出てきます。</li>
+  </ol>
+
+  <h2>C. 初期設定を実行する</h2>
+  <ol class="steps" style="--start:9">
+    <li><strong>初期設定を選ぶ</strong>
+      <span class="ui">金庫</span> → <span class="ui">初期設定(最初に1回だけ)</span> をクリックします。</li>
+    <li><strong>許可する(初回だけ)</strong>
+      「承認が必要です」と出たら、次の順に進みます。
+      <ul class="sub">
+        <li><span class="ui">続行</span> を押し、自分のGoogleアカウントを選ぶ</li>
+        <li>「このアプリはGoogleで確認されていません」と出たら、左下の <span class="ui">詳細</span> → <span class="ui">(プロジェクト名)(安全ではないページ)に移動</span></li>
+        <li><span class="ui">許可</span> を押す</li>
+      </ul>
+      <p class="note"><b>補足</b> 「確認されていません」は、自社で作ったプログラムに必ず出る表示です。許可したあと画面が止まったら、もう一度 <span class="ui">金庫</span> → <span class="ui">初期設定</span> を選んでください。</p>
+    </li>
+    <li><strong>1つ目の質問: 金庫を数えた日時</strong>
+      9月27日に金庫を数えた時刻を、<span class="val">2026/09/27 15:00</span> の形で入力して <span class="ui">OK</span>。
+      <ul class="sub"><li>時刻が分からなければ、数えた時刻より少し前にしてください。</li></ul>
+    </li>
+    <li><strong>2つ目の質問: 数えた金庫金</strong>
+      <span class="val">29968</span> と入力して <span class="ui">OK</span>(カンマや「円」は不要です)。</li>
+    <li><strong>完了メッセージを確認する</strong>
+      「初期設定が完了しました」と出たら <span class="ui">OK</span>。メッセージに「処理区分の選択肢を5つに変更しました」「担当者のプルダウンを11名にしました」と書かれていれば成功です。</li>
+  </ol>
+
+  <h2>D. うまくいったか確認する</h2>
+  <ul class="check">
+    <li>「現金残高」シートの一番上、「金庫にあるはずの合計」が <span class="val">79,968</span> になっている</li>
+    <li>フォームを開くと、「処理区分」が5つの選択肢になっている</li>
+    <li>フォームの「担当者」で、迫田・大岡・吉田・山下・平山・藤川・渡邊・楠・山口・空野・花川 が選べる</li>
+    <li><span class="ui">金庫</span> → <span class="ui">週次メールを今すぐ送る</span> で、yoshida@lit-house.jp にメールが届く</li>
+  </ul>
+
+  <h2>困ったとき</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>こうなった</th><th>こうする</th></tr></thead>
+      <tbody>
+        <tr><td>メニューに「金庫」が出ない</td><td>Apps Scriptで保存できているか確認し、スプレッドシートをもう一度再読み込みする</td></tr>
+        <tr><td>赤い文字のエラーが出た</td><td>その画面のスクリーンショットを送る</td></tr>
+        <tr><td>担当者が「記述式のため…」と表示された</td><td>A-4 をやってから、<span class="ui">金庫</span> → <span class="ui">担当者の選択肢を反映</span> を実行する</td></tr>
+        <tr><td>合計が 79,968 にならない</td><td>「現金残高」シートの B7 が 29968、B14 が数えた日時か確認する。違えば直接書き換えてよい</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var btn = document.getElementById('copyBtn');
+    var status = document.getElementById('copyStatus');
+    var area = document.getElementById('code');
+    function selectFallback() {
+      document.getElementById('codeDetails').open = true;
+      area.focus();
+      area.select();
+      status.textContent = 'コードを選択しました。Ctrl + C(Macは ⌘ + C)でコピーしてください。';
+    }
+    btn.addEventListener('click', function () {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(area.value).then(function () {
+          status.textContent = 'コピーしました。Apps Scriptに貼り付けてください。';
+        }, selectFallback);
+      } else {
+        selectFallback();
+      }
+    });
+  })();
+</script>

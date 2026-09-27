@@ -1,0 +1,232 @@
+<title>金庫管理の導入ガイド</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700&family=Noto+Sans+JP:wght@400;500;700&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --surface: #ffffff;
+    --ink: #1b2330;
+    --muted: #5a6474;
+    --line: #dde1e7;
+    --accent: #0e6b66;
+    --accent-soft: #e2f1ef;
+    --warn: #9a5b00;
+    --warn-soft: #fbf0dc;
+    --ui-bg: #eef0f4;
+    --code-bg: #f0f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #11151b;
+      --surface: #181e26;
+      --ink: #e5e9ef;
+      --muted: #9aa4b2;
+      --line: #2b3440;
+      --accent: #56b8b0;
+      --accent-soft: #16312f;
+      --warn: #e8b25c;
+      --warn-soft: #33280f;
+      --ui-bg: #232b36;
+      --code-bg: #0d1116;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #11151b;
+    --surface: #181e26;
+    --ink: #e5e9ef;
+    --muted: #9aa4b2;
+    --line: #2b3440;
+    --accent: #56b8b0;
+    --accent-soft: #16312f;
+    --warn: #e8b25c;
+    --warn-soft: #33280f;
+    --ui-bg: #232b36;
+    --code-bg: #0d1116;
+  }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", sans-serif;
+    font-size: 16px;
+    line-height: 1.8;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding-inline: 16px; padding-block: 32px 64px; }
+  h1, h2 { font-family: "Zen Kaku Gothic New", "Noto Sans JP", sans-serif; text-wrap: balance; line-height: 1.4; }
+  h1 { font-size: 28px; margin: 0 0 8px; }
+  h2 { font-size: 20px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+  p { margin: 0 0 12px; }
+  .lead { color: var(--muted); margin-bottom: 20px; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px 16px;
+           background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .facts div { display: flex; flex-direction: column; }
+  .facts b { font-size: 12px; color: var(--muted); font-weight: 500; letter-spacing: .04em; }
+  .facts span { font-weight: 700; font-variant-numeric: tabular-nums; }
+  ol.steps { list-style: none; padding: 0; margin: 0; counter-reset: step var(--start, 0); display: grid; gap: 14px; }
+  ol.steps > li { counter-increment: step; position: relative; padding: 14px 16px 14px 60px;
+                  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+  ol.steps > li::before { content: counter(step); position: absolute; left: 14px; top: 14px; width: 32px; height: 32px;
+                          border-radius: 50%; background: var(--accent); color: var(--surface); font-weight: 700;
+                          display: grid; place-items: center; font-variant-numeric: tabular-nums; }
+  ol.steps > li > strong:first-child { display: block; font-size: 17px; margin-bottom: 4px; }
+  .ui { display: inline-block; background: var(--ui-bg); border: 1px solid var(--line); border-radius: 4px;
+        padding: 0 6px; margin: 0 1px; font-weight: 500; overflow-wrap: anywhere; line-height: 1.6; }
+  .key { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 14px; background: var(--ui-bg);
+         border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; white-space: nowrap; }
+  .val { font-family: "JetBrains Mono", ui-monospace, monospace; background: var(--accent-soft); color: var(--ink);
+         border-radius: 4px; padding: 1px 6px; font-weight: 700; }
+  .note { background: var(--warn-soft); border-left: 4px solid var(--warn); border-radius: 0 6px 6px 0;
+          padding: 10px 14px; margin: 10px 0 0; font-size: 15px; }
+  .note b { color: var(--warn); }
+  ul.sub { margin: 6px 0 0; padding-left: 20px; }
+  ul.sub li { margin: 2px 0; }
+  .copybox { margin-top: 10px; display: grid; gap: 8px; }
+  .copyrow { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button.copy { font: inherit; font-weight: 700; font-size: 16px; color: var(--surface); background: var(--accent);
+                border: 0; border-radius: 6px; padding: 10px 20px; cursor: pointer; }
+  button.copy:hover { filter: brightness(1.08); }
+  button.copy:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+  .status { color: var(--accent); font-weight: 700; }
+  details { border: 1px solid var(--line); border-radius: 6px; background: var(--code-bg); }
+  summary { cursor: pointer; padding: 6px 10px; color: var(--muted); font-size: 14px; }
+  textarea#code { width: 100%; box-sizing: border-box; height: 260px; border: 0; border-top: 1px solid var(--line);
+                  background: var(--code-bg); color: var(--ink); font-family: "JetBrains Mono", ui-monospace, monospace;
+                  font-size: 12px; line-height: 1.5; padding: 10px; resize: vertical; }
+  .check { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .check li { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px 10px 40px; position: relative; }
+  .check li::before { content: ""; position: absolute; left: 14px; top: 16px; width: 14px; height: 14px;
+                      border: 2px solid var(--accent); border-radius: 3px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  .tablewrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 13px; color: var(--muted); font-weight: 500; }
+  tr:last-child td { border-bottom: 0; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <h1>金庫管理の導入ガイド</h1>
+  <p class="lead">「大阪GB｜現金出納帳」に、金庫の残高を3つに分けて計算する仕組みを入れる手順です。パソコンで、上から順に進めてください。所要時間はおよそ15分です。</p>
+
+  <div class="facts">
+    <div><b>作業する場所</b><span>パソコン(スマホ不可)</span></div>
+    <div><b>必要なもの</b><span>フォームとシートの編集権限</span></div>
+    <div><b>入力する数字</b><span>数えた日時と 29968</span></div>
+  </div>
+  <p class="note"><b>注意</b> 途中で分からなくなったら、その画面のスクリーンショットを送ってください。途中でやめても、スプレッドシートの記録は消えません。</p>
+
+  <h2>A. 担当者をプルダウンにする(フォーム側)</h2>
+  <ol class="steps" style="--start:0">
+    <li><strong>スプレッドシートを開く</strong>
+      「大阪GB｜現金出納帳」を開きます。</li>
+    <li><strong>フォームの編集画面を開く</strong>
+      上のメニューで <span class="ui">ツール</span> → <span class="ui">フォームを管理</span> → <span class="ui">フォームを編集</span> の順にクリックします。新しいタブでフォームの編集画面が開きます。</li>
+    <li><strong>「担当者」の質問をクリックする</strong>
+      質問の枠が選ばれた状態(左端に色の線が出る)になります。</li>
+    <li><strong>質問の種類を「プルダウン」に変える</strong>
+      質問の右上にある <span class="ui">記述式</span> と書かれた箱をクリックし、一覧から <span class="ui">プルダウン</span> を選びます。
+      <ul class="sub">
+        <li>選択肢は「オプション 1」のままで大丈夫です。名前はあとで自動で入ります。</li>
+        <li>フォームは自動で保存されます。このタブは閉じてかまいません。</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h2>B. 仕組みを貼り付ける(スプレッドシート側)</h2>
+  <ol class="steps" style="--start:4">
+    <li><strong>Apps Scriptを開く</strong>
+      スプレッドシートに戻り、上のメニューで <span class="ui">拡張機能</span> → <span class="ui">Apps Script</span> をクリックします。新しいタブで、プログラムを書く画面が開きます。</li>
+    <li><strong>最初からある文字を消す</strong>
+      左の「ファイル」の下にある <span class="ui">コード.gs</span> をクリックします。右側の広い白い部分をクリックし、<span class="key">Ctrl</span> + <span class="key">A</span>(Macは <span class="key">⌘</span> + <span class="key">A</span>)で全部選んで、<span class="key">Delete</span> で消します。
+      <p class="note"><b>確認</b> 消す前の中身が <code>function myFunction() {}</code> の3行だけでなければ、消さずに止めて連絡してください。別の仕組みが入っている可能性があります。</p>
+    </li>
+    <li><strong>このページのコードをコピーする</strong>
+      下のボタンを押すと、仕組み全体({{LINES}}行)がコピーされます。
+      <div class="copybox">
+        <div class="copyrow">
+          <button class="copy" id="copyBtn" type="button">コードをコピー</button>
+          <span class="status" id="copyStatus" aria-live="polite"></span>
+        </div>
+        <details id="codeDetails">
+          <summary>コードの中身を見る(ボタンが効かないときは、ここを開いて全部選んでコピー)</summary>
+          <textarea id="code" readonly spellcheck="false">{{CODE}}</textarea>
+        </details>
+      </div>
+    </li>
+    <li><strong>Apps Scriptに貼り付けて保存する</strong>
+      Apps Scriptのタブに戻り、白い部分をクリックして <span class="key">Ctrl</span> + <span class="key">V</span>(Macは <span class="key">⌘</span> + <span class="key">V</span>)で貼り付けます。続けて <span class="key">Ctrl</span> + <span class="key">S</span>(Macは <span class="key">⌘</span> + <span class="key">S</span>)で保存します。
+      <ul class="sub"><li>上部の「コード.gs」の横に出ていた丸い印が消えれば保存できています。</li></ul>
+    </li>
+    <li><strong>スプレッドシートを再読み込みする</strong>
+      スプレッドシートのタブに戻り、<span class="key">F5</span>(Macは <span class="key">⌘</span> + <span class="key">R</span>)を押します。10秒ほど待つと、上のメニューの <span class="ui">ヘルプ</span> の右に <span class="ui">金庫</span> が出てきます。</li>
+  </ol>
+
+  <h2>C. 初期設定を実行する</h2>
+  <ol class="steps" style="--start:9">
+    <li><strong>初期設定を選ぶ</strong>
+      <span class="ui">金庫</span> → <span class="ui">初期設定(最初に1回だけ)</span> をクリックします。</li>
+    <li><strong>許可する(初回だけ)</strong>
+      「承認が必要です」と出たら、次の順に進みます。
+      <ul class="sub">
+        <li><span class="ui">続行</span> を押し、自分のGoogleアカウントを選ぶ</li>
+        <li>「このアプリはGoogleで確認されていません」と出たら、左下の <span class="ui">詳細</span> → <span class="ui">(プロジェクト名)(安全ではないページ)に移動</span></li>
+        <li><span class="ui">許可</span> を押す</li>
+      </ul>
+      <p class="note"><b>補足</b> 「確認されていません」は、自社で作ったプログラムに必ず出る表示です。許可したあと画面が止まったら、もう一度 <span class="ui">金庫</span> → <span class="ui">初期設定</span> を選んでください。</p>
+    </li>
+    <li><strong>1つ目の質問: 金庫を数えた日時</strong>
+      9月27日に金庫を数えた時刻を、<span class="val">2026/09/27 15:00</span> の形で入力して <span class="ui">OK</span>。
+      <ul class="sub"><li>時刻が分からなければ、数えた時刻より少し前にしてください。</li></ul>
+    </li>
+    <li><strong>2つ目の質問: 数えた金庫金</strong>
+      <span class="val">29968</span> と入力して <span class="ui">OK</span>(カンマや「円」は不要です)。</li>
+    <li><strong>完了メッセージを確認する</strong>
+      「初期設定が完了しました」と出たら <span class="ui">OK</span>。メッセージに「処理区分の選択肢を5つに変更しました」「担当者のプルダウンを11名にしました」と書かれていれば成功です。</li>
+  </ol>
+
+  <h2>D. うまくいったか確認する</h2>
+  <ul class="check">
+    <li>「現金残高」シートの一番上、「金庫にあるはずの合計」が <span class="val">79,968</span> になっている</li>
+    <li>フォームを開くと、「処理区分」が5つの選択肢になっている</li>
+    <li>フォームの「担当者」で、迫田・大岡・吉田・山下・平山・藤川・渡邊・楠・山口・空野・花川 が選べる</li>
+    <li><span class="ui">金庫</span> → <span class="ui">週次メールを今すぐ送る</span> で、yoshida@lit-house.jp にメールが届く</li>
+  </ul>
+
+  <h2>困ったとき</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>こうなった</th><th>こうする</th></tr></thead>
+      <tbody>
+        <tr><td>メニューに「金庫」が出ない</td><td>Apps Scriptで保存できているか確認し、スプレッドシートをもう一度再読み込みする</td></tr>
+        <tr><td>赤い文字のエラーが出た</td><td>その画面のスクリーンショットを送る</td></tr>
+        <tr><td>担当者が「記述式のため…」と表示された</td><td>A-4 をやってから、<span class="ui">金庫</span> → <span class="ui">担当者の選択肢を反映</span> を実行する</td></tr>
+        <tr><td>合計が 79,968 にならない</td><td>「現金残高」シートの B7 が 29968、B14 が数えた日時か確認する。違えば直接書き換えてよい</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var btn = document.getElementById('copyBtn');
+    var status = document.getElementById('copyStatus');
+    var area = document.getElementById('code');
+    function selectFallback() {
+      document.getElementById('codeDetails').open = true;
+      area.focus();
+      area.select();
+      status.textContent = 'コードを選択しました。Ctrl + C(Macは ⌘ + C)でコピーしてください。';
+    }
+    btn.addEventListener('click', function () {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(area.value).then(function () {
+          status.textContent = 'コピーしました。Apps Scriptに貼り付けてください。';
+        }, selectFallback);
+      } else {
+        selectFallback();
+      }
+    });
+  })();
+</script>
