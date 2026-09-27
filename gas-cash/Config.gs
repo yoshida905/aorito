@@ -1,10 +1,10 @@
 /**
- * 現金管理(金庫)の設定ファイル。実際の運用に合わせてここだけ書き換えれば動作します。
+ * 大阪GB 現金出納帳(既存のスプレッドシート+Googleフォーム)の改修用設定。
  *
  * 金庫の中身は3つに分けて管理する:
  * - 釣銭ポーチ: 現場に持っていく釣銭。金額は固定(1万円×5個)
  * - 金庫金: 購入の現金払いに使うお金。基準額(10万円)まで補充して使う
- * - 売上封筒: ケータリング・オードブルの現金売上。支払いには使わず、全額を銀行へ入金する
+ * - 売上封筒: ケータリング・オードブルの現金売上。支払いには使わず、銀行へ行くときに全部入金する
  */
 const CASH_CONFIG = {
   // 釣銭ポーチ
@@ -13,72 +13,73 @@ const CASH_CONFIG = {
 
   // 金庫金の基準額(補充するときは、この額に戻す)
   FUND_BASE: 100000,
-  // 金庫金の残高がこの額を下回ったら、補充依頼のメールを送る
+  // 支払いの登録で金庫金の残高がこの額を下回ったとき、補充依頼のメールを送る
   FUND_LOW_ALERT: 30000,
 
   // 売上封筒を受け取ってからこの日数を超えて金庫に残っていたら、週次メールで警告する
   ENVELOPE_ALERT_DAYS: 14,
 
-  // 週次メール(金庫確認の前に「あるべき金額」を知らせる)の曜日と時刻
+  // 週次メール(金庫確認の前に「あるはずの金額」を知らせる)の曜日と時刻
   WEEKLY_REPORT_DAY: 'MONDAY', // SUNDAY〜SATURDAY
   WEEKLY_REPORT_HOUR: 9,
 
   // 通知の宛先(カンマ区切りで複数可)
   NOTIFY_EMAILS: 'yoshida@lit-house.jp',
 
-  // 担当者名の選択肢。空のままなら自由入力になる(表記ゆれを防ぐため、登録を推奨)
-  STAFF_NAMES: [],
-
-  FORM_TITLE: '金庫 現金の出し入れ登録',
-
-  // フォームの質問タイトル。namedValues のキーになるため、フォーム内で重複させないこと
-  Q: {
-    KIND: '登録の種類',
-    STAFF: '担当者',
-
-    PAY_DATE: '支払った日',
-    PAY_AMOUNT: '支払った金額(円)',
-    PAY_DESC: '支払先・購入したもの',
-    PAY_RECEIPT: 'レシート・領収書',
-
-    SALE_DATE: '売上金を受け取った日',
-    SALE_AMOUNT: '受け取った金額(円)',
-    SALE_DESC: '案件名・お客様名',
-    SALE_TYPE: '売上の区分',
-
-    DEPOSIT_DATE: '銀行に入金した日',
-    DEPOSIT_ENVELOPES: '入金した売上封筒',
-    DEPOSIT_AMOUNT: '銀行に入金した合計額(円)',
-
-    REFILL_DATE: '補充した日',
-    REFILL_AMOUNT: '補充した金額(円)',
-    REFILL_SOURCE: '補充したお金の出どころ',
-  },
-
-  // 「登録の種類」の選択肢
+  // 「処理区分」の選択肢。残高の計算はこの文字列で分類するため、フォームと一字一句そろえること。
+  // 先頭の「入金」「出金」は、金庫全体から見てお金が入るか出るか。
   KINDS: {
-    PAY: '支払い(金庫金から現金で払った)',
-    SALE: '売上金を受け取った(茶封筒に入れて金庫へ)',
-    DEPOSIT: '売上封筒を銀行に入金した',
-    REFILL: '金庫金を補充した',
+    PAY: '出金(支払い)',
+    SALE: '入金(売上金・茶封筒へ)',
+    REFILL: '入金(金庫金の補充)',
+    OTHER_IN: '入金(おつり・返金の戻り・その他)',
+    DEPOSIT: '出金(売上封筒を全部銀行へ入金)',
   },
 
+  // 既存のシート名
   SHEETS: {
-    LEDGER: '入出金台帳',
-    BALANCE: '残高',
+    RESPONSES: 'フォーム回答',
+    HISTORY: '入出金履歴',
+    BALANCE: '現金残高',
+    MONTHLY: '月別集計',
+  },
+
+  // フォーム回答シートの列(既存フォームの質問順)
+  COLS: {
+    TIMESTAMP: 'A',
+    KIND: 'B',
+    DATE: 'C',
+    AMOUNT: 'D',
+    DESC: 'E',
+    PARTNER: 'F',
+    STAFF: 'G',
+    RECEIPT: 'H',
+    NOTE: 'I',
+  },
+
+  // 既存フォームの質問タイトル(namedValues のキー)
+  Q: {
+    KIND: '処理区分',
+    DATE: '取引日',
+    AMOUNT: '金額',
+    DESC: '内容・用途',
+    PARTNER: '相手先／取引先',
+    STAFF: '担当者',
   },
 };
 
-// 入出金台帳の列(この順で書き込む)
-const LEDGER_HEADERS = [
-  '記録ID', '登録日時', '日付', '種類', '置き場所', '入金', '出金',
-  '内容', '担当者', 'レシート', '封筒の状態', '銀行入金日', 'メモ',
-];
-const LEDGER_KEYS = [
-  'id', 'createdAt', 'date', 'type', 'place', 'amountIn', 'amountOut',
-  'desc', 'staff', 'receipt', 'status', 'depositDate', 'memo',
-];
-
-const PLACE = { FUND: '金庫金', ENVELOPE: '売上封筒' };
-const ENVELOPE_STATUS = { KEPT: '金庫に保管中', DEPOSITED: '銀行入金済' };
-const NO_ENVELOPE_CHOICE = '(金庫に保管中の売上封筒はありません)';
+// 現金残高シートのA列の見出し(GASはこの見出しで行を探して値を読む)
+const BAL = {
+  TOTAL: '金庫にあるはずの合計',
+  POUCH: '① 釣銭ポーチ',
+  FUND: '② 金庫金(支払い用)',
+  FUND_COUNTED: '　数えた金額(基準)',
+  FUND_IN: '　基準日時より後の入金(補充・おつり等)',
+  FUND_OUT: '　基準日時より後の支払い',
+  REFILL: '　補充が必要な額',
+  ENVELOPE: '③ 売上封筒(銀行へ未入金)',
+  ENVELOPE_COUNT: '　封筒の件数',
+  BASE_TIME: '基準日時(金庫を数えた日時)',
+  LAST_DEPOSIT: '最後に売上封筒を銀行へ入金した日時',
+  ENVELOPE_LIST: '未入金の売上封筒',
+};

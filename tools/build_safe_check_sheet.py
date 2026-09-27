@@ -34,8 +34,8 @@ EXAMPLE = {
     "pouches": [10000] * POUCH_COUNT,
     "fund_book": 90160,
     "counts": {10000: 7, 5000: 2, 1000: 8, 500: 2, 100: 10, 50: 2, 10: 5, 5: 2, 1: 0},
-    "envelopes": [("U0001", "9/15", "A社(ケータリング)", 30000, 30000),
-                  ("U0002", "10/4", "B社(オードブル)", 44400, 44400)],
+    "envelopes": [("1", "9/15", "A社(ケータリング)", 30000, 30000),
+                  ("2", "10/4", "B社(オードブル)", 44400, 44400)],
     "total_book": 214560,
 }
 
@@ -93,7 +93,7 @@ def build_sheet(ws, example=False):
     merge(ws, "G3:H3", ex["witness"] if ex else None, fill=INPUT_FILL, align="center")
     ws.row_dimensions[3].height = 26
 
-    merge(ws, "A4:H4", "青い欄は、月曜朝の「【金庫確認】今あるはずの金額」メールから書き写してから数える。"
+    merge(ws, "A4:H4", "青い欄は、月曜朝の「【金庫確認】あるはずの金額」メール(または「現金残高」シート)から書き写してから数える。"
           "黄色の欄は数えた結果を書く。", size=8, border=False, color="595959", wrap=True)
 
     # --- 1. 釣銭ポーチ ---
@@ -162,7 +162,7 @@ def build_sheet(ws, example=False):
     r = fr + 1
     section(ws, r, "3. 売上封筒(茶封筒を1件ずつ。帳簿の金額はメールの一覧から書き写す)")
     r += 1
-    for col, h in zip("ABCDEFGH", ["記録ID", "受取日", "案件名", "", "帳簿の金額", "実際の金額",
+    for col, h in zip("ABCDEFGH", ["No.", "受取日", "相手先", "", "帳簿の金額", "実際の金額",
                                    "差額", "開封確認"]):
         if col == "C":
             merge(ws, f"C{r}:D{r}", h, bold=True, fill=HEAD_FILL, align="center", size=9)
@@ -172,7 +172,7 @@ def build_sheet(ws, example=False):
     for i in range(ENVELOPE_ROWS):
         row = e0 + i
         s = ex["envelopes"][i] if ex and i < len(ex["envelopes"]) else None
-        put(ws, f"A{row}", s[0] if s else None, fill=BOOK_FILL, align="center", size=9)
+        put(ws, f"A{row}", i + 1, align="center", size=9)
         put(ws, f"B{row}", s[1] if s else None, fill=BOOK_FILL, align="center", size=9)
         merge(ws, f"C{row}:D{row}", s[2] if s else None, fill=BOOK_FILL, size=9)
         put(ws, f"E{row}", s[3] if s else None, fill=BOOK_FILL, align="right", fmt=YEN)
@@ -196,7 +196,7 @@ def build_sheet(ws, example=False):
     r += 1
     rows = [
         ("実際に数えた合計", f'=IF(OR(COUNT(B{p0}:B{p1})=0,{fund_actual}=""),"",B{ptot}+{fund_actual}+F{etot})', None),
-        ("今あるはずの金額(メールの1行目)", ex["total_book"] if ex else None, BOOK_FILL),
+        ("あるはずの合計(メールの1行目)", ex["total_book"] if ex else None, BOOK_FILL),
         ("差額", f'=IF(OR(D{r}="",D{r + 1}=""),"",D{r}-D{r + 1})', None),
     ]
     for k, (label, val, fill) in enumerate(rows):
@@ -215,7 +215,7 @@ def build_sheet(ws, example=False):
     section(ws, r, "5. 確認項目(はい/いいえ に○)")
     checks = [
         "受け取りから14日を超えた売上封筒はない(あれば次に銀行へ行くとき必ず入金)",
-        "すべての封筒に 記録ID・案件名・金額・受取日 が書いてある",
+        "すべての封筒に 受取日・相手先・金額・担当者 が書いてある",
         "今週の支払いのレシートが全部そろっている",
         "売上封筒のお金を支払いや補充に使っていない",
         "数えた後、2人で施錠を確認した",
@@ -258,11 +258,11 @@ def build_guide(ws):
         ("・売上封筒: ケータリング・オードブルの現金売上。茶封筒に入れて保管し、全額を銀行へ入金する。", False),
         ("", False),
         ("毎回(お金を出し入れしたとき)", True),
-        ("・紙には書かず、スマホのフォーム「金庫 現金の出し入れ登録」から登録する。", False),
-        ("・売上封筒には、フォーム登録後に届く記録ID(U0001など)・案件名・金額・受取日を書く。", False),
+        ("・紙には書かず、スマホのフォーム(大阪GB 現金出納帳)から登録する。処理区分は5つから選ぶ。", False),
+        ("・売上封筒には、受取日・相手先・金額・担当者を書く。銀行へ行くときは封筒を全部入金する。", False),
         ("", False),
         ("週1回(月曜)", True),
-        ("1. 月曜朝に届くメール「【金庫確認】今あるはずの金額」の数字を、この表の青い欄に書き写す。", False),
+        ("1. 月曜朝に届くメール「【金庫確認】あるはずの金額」の数字を、この表の青い欄に書き写す。", False),
         ("2. 2人で、ポーチ・金庫金・売上封筒の順に数え、黄色の欄に書く。", False),
         ("3. 差額が1円でもあれば原因を書き、当日中に責任者へ報告。登録漏れならフォームで追加登録する。", False),
         ("4. 責任者が押印し、ファイルに綴じて1年間保管する。", False),

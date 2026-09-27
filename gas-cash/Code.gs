@@ -1,6 +1,8 @@
 /**
- * 金庫の現金管理 フォーム送信時・週次の自動処理。
+ * 大阪GB 現金出納帳 フォーム送信時・週次の自動処理。
  *
+ * 残高は「現金残高」シートの関数で計算される。このスクリプトは、その値を読んで
+ * 補充が必要なとき・銀行入金額が合わないときに通知し、週1回「あるはずの金額」を知らせる。
  * セットアップは Setup.gs の setupCashManagement を1回だけ実行する。
  */
 
@@ -8,7 +10,6 @@
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('金庫')
-    .addItem('残高を再計算', 'refreshAll')
     .addItem('週次メールを今すぐ送る', 'sendWeeklyReport')
     .addSeparator()
     .addItem('初期設定(最初に1回だけ)', 'setupCashManagement')
@@ -16,152 +17,109 @@ function onOpen() {
 }
 
 /**
- * フォーム送信をトリガーに実行されるメイン処理。
+ * フォーム送信をトリガーに実行される。
  * @param {GoogleAppsScript.Events.SheetsOnFormSubmit} e
  */
 function onCashFormSubmit(e) {
-  const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
   try {
-    const answers = readAnswers_(e);
-    const ledger = readLedger_();
-    const result = buildEntries_(answers, ledger, new Date());
+    const cfg = CASH_CONFIG;
+    const named = (e && e.namedValues) || {};
+    const get = function (title) { return String((named[title] || [''])[0] || '').trim(); };
+    const kind = get(cfg.Q.KIND);
+    const amount = parseAmount_(get(cfg.Q.AMOUNT));
+    const msgs = [];
 
-    appendLedgerRows_(result.rows);
-    settleEnvelopes_(result.settleIds, answers[CASH_CONFIG.Q.DEPOSIT_DATE]);
+    if (!(amount > 0)) {
+      msgs.push('金額が読み取れませんでした(' + get(cfg.Q.AMOUNT) + ')。フォーム回答シートを直してください。');
+    }
+    if (Object.keys(cfg.KINDS).map(function (k) { return cfg.KINDS[k]; }).indexOf(kind) === -1) {
+      msgs.push('処理区分「' + kind + '」は残高の計算に入りません。フォームの選択肢を確認してください。');
+    }
 
-    const summary = refreshAll();
-    notifyIfNeeded_(answers, result.warnings, summary);
+    SpreadsheetApp.flush();
+    const bal = readBalance_();
+
+    if (kind === cfg.KINDS.PAY && amount > 0) {
+      if (bal.fund < 0) {
+        msgs.push('金庫金の残高がマイナス(' + formatYen_(bal.fund) + ')です。登録漏れ・二重登録がないか確認してください。');
+      } else if (crossedLowAlert_(bal.fund, amount)) {
+        msgs.push('金庫金の残高が ' + formatYen_(bal.fund) + ' になりました。' + formatYen_(bal.refill) +
+          ' の補充が必要です(次に銀行へ行くときに引き出す)。');
+      }
+    }
+
+    if (kind === cfg.KINDS.DEPOSIT && amount > 0 && e && e.range) {
+      const sheet = e.range.getSheet();
+      const submitTime = sheet.getRange(e.range.getRow(), 1).getValue();
+      const result = checkDeposit_(readResponses_(sheet), bal.baseTime, submitTime, amount);
+      if (!result.envelopes.length) {
+        msgs.push('銀行入金が登録されましたが、未入金の売上封筒が登録されていません。売上の登録漏れがないか確認してください。');
+      } else if (result.diff !== 0) {
+        msgs.push('銀行への入金額が、登録済みの売上封筒の合計と合いません。\n' +
+          '封筒の合計 ' + formatYen_(result.bookTotal) + '(' + result.envelopes.length + '件) / 入金額 ' +
+          formatYen_(amount) + ' / 差額 ' + formatYen_(result.diff));
+      }
+    }
+
+    if (msgs.length) {
+      const body = msgs.concat(['', '登録内容:'])
+        .concat(Object.keys(named).filter(function (k) { return get(k); })
+          .map(function (k) { return '・' + k + ': ' + get(k); }))
+        .concat(['', 'スプレッドシート: ' + SpreadsheetApp.getActiveSpreadsheet().getUrl()]);
+      notify_('【金庫】確認が必要な登録があります', body.join('\n'));
+    }
   } catch (err) {
     Logger.log('onCashFormSubmit failed: ' + err);
     notify_('【エラー】金庫の現金管理 自動処理', String(err && err.stack || err));
-  } finally {
-    lock.releaseLock();
   }
-}
-
-/** 残高シートとフォームの封筒一覧を最新にする。台帳を手で直したときもメニューから実行する */
-function refreshAll() {
-  const summary = computeSummary_(readLedger_(), new Date());
-  writeBalanceSheet_(summary);
-  refreshEnvelopeChoices_(summary);
-  return summary;
 }
 
 /** 週1回、金庫を数える前に「あるはずの金額」をメールで知らせる */
 function sendWeeklyReport() {
-  const summary = refreshAll();
-  const lines = ['金庫確認の日です。下の金額を金庫確認表の「帳簿の金額」欄に書き写してから、2人で数えてください。', '']
-    .concat(summaryLines_(summary));
-  if (summary.refill > 0) {
-    lines.push('', '銀行へ行くときに ' + formatYen_(summary.refill) +
-      ' を引き出し、金庫金を基準額に戻してください(補充したらフォームで登録)。');
-  }
-  if (summary.oldEnvelopes.length) {
-    lines.push('', '受け取りから' + CASH_CONFIG.ENVELOPE_ALERT_DAYS + '日を超えた売上封筒が ' +
-      summary.oldEnvelopes.length + '件あります。次に銀行へ行くときに必ず入金してください。');
-  }
-  lines.push('', 'スプレッドシート: ' + SpreadsheetApp.getActiveSpreadsheet().getUrl());
-  notify_('【金庫確認】今あるはずの金額 ' + formatYen_(summary.expectedTotal), lines.join('\n'));
-}
-
-/** namedValues を「質問タイトル → 回答文字列」に変換する(チェックボックスは連結される) */
-function readAnswers_(e) {
-  const named = (e && e.namedValues) || {};
-  const answers = {};
-  Object.keys(named).forEach(function (title) {
-    const v = named[title];
-    answers[title] = (Array.isArray(v) ? v.join(', ') : String(v || '')).trim();
-  });
-  return answers;
-}
-
-function ledgerSheet_() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CASH_CONFIG.SHEETS.LEDGER);
-  if (!sheet) throw new Error('「' + CASH_CONFIG.SHEETS.LEDGER + '」シートがありません。初期設定を実行してください');
-  return sheet;
-}
-
-/** 入出金台帳をオブジェクト配列で読む(列はヘッダー名で探すので、列の並べ替えに強い) */
-function readLedger_() {
-  const values = ledgerSheet_().getDataRange().getValues();
-  if (values.length < 2) return [];
-  const header = values[0];
-  const idx = LEDGER_HEADERS.map(function (h) { return header.indexOf(h); });
-  return values.slice(1).map(function (row) {
-    const obj = {};
-    LEDGER_KEYS.forEach(function (key, i) { obj[key] = idx[i] === -1 ? '' : row[idx[i]]; });
-    if (!(obj.date instanceof Date)) obj.date = parseDate_(obj.date, new Date());
-    return obj;
-  }).filter(function (r) { return r.type; });
-}
-
-function appendLedgerRows_(rows) {
-  if (!rows.length) return;
-  const sheet = ledgerSheet_();
-  const values = rows.map(function (r) {
-    return LEDGER_KEYS.map(function (key) { return r[key] === undefined ? '' : r[key]; });
-  });
-  sheet.getRange(sheet.getLastRow() + 1, 1, values.length, LEDGER_HEADERS.length).setValues(values);
-}
-
-/** 銀行に入金した封筒の状態を「銀行入金済」にする */
-function settleEnvelopes_(ids, depositDateText) {
-  if (!ids.length) return;
-  const sheet = ledgerSheet_();
-  const values = sheet.getDataRange().getValues();
-  const header = values[0];
-  const idCol = header.indexOf('記録ID');
-  const statusCol = header.indexOf('封筒の状態');
-  const dateCol = header.indexOf('銀行入金日');
-  const depositDate = parseDate_(depositDateText, new Date());
-  for (let i = 1; i < values.length; i++) {
-    if (ids.indexOf(String(values[i][idCol])) === -1) continue;
-    sheet.getRange(i + 1, statusCol + 1).setValue(ENVELOPE_STATUS.DEPOSITED);
-    sheet.getRange(i + 1, dateCol + 1).setValue(depositDate);
-  }
-}
-
-function writeBalanceSheet_(summary) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(CASH_CONFIG.SHEETS.BALANCE);
-  if (!sheet) sheet = ss.insertSheet(CASH_CONFIG.SHEETS.BALANCE, 0);
-  sheet.clear();
-  const lines = ['金庫の残高(自動更新)', '更新日時: ' +
-    Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm'), '']
-    .concat(summaryLines_(summary));
-  sheet.getRange(1, 1, lines.length, 1).setValues(lines.map(function (l) { return [l]; }));
-  sheet.getRange(1, 1).setFontSize(14).setFontWeight('bold');
-  sheet.getRange(4, 1).setFontSize(13).setFontWeight('bold');
-  sheet.setColumnWidth(1, 640);
-}
-
-/** フォームの「入金した売上封筒」の選択肢を、保管中の封筒だけにする */
-function refreshEnvelopeChoices_(summary) {
-  const props = PropertiesService.getScriptProperties();
-  const formId = props.getProperty('FORM_ID');
-  const itemId = props.getProperty('ENVELOPE_ITEM_ID');
-  if (!formId || !itemId) return;
-  const item = FormApp.openById(formId).getItemById(Number(itemId)).asCheckboxItem();
-  const labels = summary.envelopes.map(function (e) {
-    return envelopeLabel_({ id: e.id, date: e.date, desc: e.desc, amountIn: e.amount });
-  });
-  item.setChoiceValues(labels.length ? labels : [NO_ENVELOPE_CHOICE]);
-}
-
-function notifyIfNeeded_(answers, warnings, summary) {
-  const msgs = warnings.slice();
-  if (summary.fundLow) {
-    msgs.push('金庫金の残高が ' + formatYen_(summary.fund) + ' になりました。' +
-      formatYen_(summary.refill) + ' の補充が必要です。');
-  }
-  if (!msgs.length) return;
-  const body = msgs.concat(['', '登録内容:'])
-    .concat(Object.keys(answers).filter(function (k) { return answers[k]; })
-      .map(function (k) { return '・' + k + ': ' + answers[k]; }))
+  const bal = readBalance_();
+  const envelopes = envelopeAges_(readEnvelopeList_(), new Date());
+  const lines = weeklyReportLines_(bal, envelopes)
     .concat(['', 'スプレッドシート: ' + SpreadsheetApp.getActiveSpreadsheet().getUrl()]);
-  notify_('【金庫】確認が必要な登録があります', body.join('\n'));
+  notify_('【金庫確認】あるはずの金額 ' + formatYen_(bal.total), lines.join('\n'));
+}
+
+/** 現金残高シートのA列の見出しで行を探し、B列の値を読む */
+function readBalance_() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CASH_CONFIG.SHEETS.BALANCE);
+  const values = sheet.getRange(1, 1, 16, 2).getValues();
+  const byLabel = {};
+  values.forEach(function (r) { if (r[0]) byLabel[String(r[0])] = r[1]; });
+  const need = function (label) {
+    if (!(label in byLabel)) throw new Error('現金残高シートに「' + label + '」の行がありません。初期設定を実行してください');
+    return byLabel[label];
+  };
+  return {
+    total: Number(need(BAL.TOTAL)),
+    pouch: Number(need(BAL.POUCH)),
+    fund: Number(need(BAL.FUND)),
+    refill: Number(need(BAL.REFILL)),
+    envelope: Number(need(BAL.ENVELOPE)),
+    baseTime: need(BAL.BASE_TIME),
+  };
+}
+
+/** 現金残高シートの「未入金の売上封筒」一覧を読む */
+function readEnvelopeList_() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CASH_CONFIG.SHEETS.BALANCE);
+  const last = sheet.getLastRow();
+  if (last < 19) return [];
+  return sheet.getRange(19, 1, last - 18, 6).getValues()
+    .filter(function (r) { return isDate_(r[0]); })
+    .map(function (r) { return { date: r[0], partner: r[1] || r[2], amount: Number(r[3]) || 0 }; });
+}
+
+/** フォーム回答シートから、登録日時・処理区分・金額を読む */
+function readResponses_(sheet) {
+  const last = sheet.getLastRow();
+  if (last < 2) return [];
+  return sheet.getRange(2, 1, last - 1, 4).getValues()
+    .filter(function (r) { return isDate_(r[0]); })
+    .map(function (r) { return { ts: r[0], kind: String(r[1]), amount: parseAmount_(r[3]) }; });
 }
 
 function notify_(subject, body) {

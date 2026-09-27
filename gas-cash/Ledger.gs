@@ -1,10 +1,14 @@
 /**
- * 入出金の計算ロジック(Googleのサービスを使わない純粋な関数だけを置く)。
+ * 計算ロジック(Googleのサービスを使わない純粋な関数だけを置く)。
  * tests/ledger.test.js から Node.js でテストできるようにしている。
+ *
+ * 残高そのものは「現金残高」シートの関数で計算する。ここにあるのは、
+ * 関数では書きにくい通知の判定と、シートの関数を組み立てる処理だけ。
  */
 
 /** 「30,000」「３００００円」「¥30000」などを数値にする。数字でなければ NaN */
 function parseAmount_(value) {
+  if (typeof value === 'number') return value;
   const s = String(value == null ? '' : value)
     .replace(/[０-９]/g, function (c) { return String.fromCharCode(c.charCodeAt(0) - 0xfee0); })
     .replace(/[,，円\s¥￥]/g, '');
@@ -12,11 +16,17 @@ function parseAmount_(value) {
   return Number(s);
 }
 
-/** 「2026/09/27」「2026-09-27」を Date にする。読めなければ fallback を返す */
-function parseDate_(value, fallback) {
-  const m = String(value || '').match(/(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})/);
-  if (!m) return fallback;
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+/** Date かどうか(スプレッドシートの日付セルは Date で届く) */
+function isDate_(v) {
+  return Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime());
+}
+
+/** 「2026/09/27 15:00」「2026-09-27」を Date にする。読めなければ null */
+function parseDateTime_(value) {
+  if (isDate_(value)) return value;
+  const m = String(value || '').match(/(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})日?(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] || 0), Number(m[5] || 0));
 }
 
 function formatMd_(date) {
@@ -24,7 +34,8 @@ function formatMd_(date) {
 }
 
 function formatYen_(n) {
-  return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円';
+  const sign = n < 0 ? '-' : '';
+  return sign + String(Math.round(Math.abs(n))).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '円';
 }
 
 function daysBetween_(from, to) {
@@ -33,173 +44,112 @@ function daysBetween_(from, to) {
   return Math.round((b - a) / 86400000);
 }
 
-/** 売上封筒の次の記録ID(U0001, U0002, ...) */
-function nextEnvelopeId_(ledger) {
-  let max = 0;
-  ledger.forEach(function (r) {
-    const m = String(r.id || '').match(/^U(\d+)$/);
-    if (m) max = Math.max(max, Number(m[1]));
-  });
-  return 'U' + ('0000' + (max + 1)).slice(-4);
-}
-
 /**
- * フォームの「入金した売上封筒」の選択肢に出す文字列。
- * チェックボックスの回答はカンマ区切りで届くため、金額にカンマを入れない。
+ * 売上封筒の銀行入金を登録したとき、登録済みの未入金封筒の合計と入金額を比べる。
+ * 未入金の封筒 = 基準日時と直前の銀行入金より後に登録され、今回の登録より前に登録された売上。
+ * @param {{ts: Date, kind: string, amount: number}[]} rows フォーム回答(今回の行も含んでよい)
+ * @param {Date} baseTime 基準日時(金庫を数えた日時)
+ * @param {Date} submitTime 今回の登録日時
+ * @param {number} amount 今回登録した入金額
  */
-function envelopeLabel_(row) {
-  return row.id + ' ' + formatMd_(row.date) + '受取 ' + row.desc + ' ' + row.amountIn + '円';
-}
-
-/** 回答文字列から封筒の記録IDを取り出す */
-function extractEnvelopeIds_(text) {
-  return String(text || '').match(/U\d{4,}/g) || [];
-}
-
-/**
- * フォームの1回答を、入出金台帳に追加する行と、入金済みにする封筒に変換する。
- * @param {Object<string,string>} answers 質問タイトル → 回答
- * @param {Object[]} ledger 既存の台帳(オブジェクト配列)
- * @param {Date} now 登録日時
- * @return {{rows: Object[], settleIds: string[], warnings: string[]}}
- */
-function buildEntries_(answers, ledger, now) {
-  const Q = CASH_CONFIG.Q;
+function checkDeposit_(rows, baseTime, submitTime, amount) {
   const K = CASH_CONFIG.KINDS;
-  const kind = answers[Q.KIND] || '';
-  const staff = answers[Q.STAFF] || '';
-  const base = {
-    id: '', createdAt: now, date: now, type: '', place: '', amountIn: '', amountOut: '',
-    desc: '', staff: staff, receipt: '', status: '', depositDate: '', memo: '',
-  };
-  const warnings = [];
-  const rows = [];
-  let settleIds = [];
-
-  function amountOf(title) {
-    const n = parseAmount_(answers[title]);
-    if (!(n > 0)) {
-      warnings.push('金額が読み取れませんでした(' + title + ': ' + (answers[title] || '空欄') + ')。台帳を手で直してください。');
-      return 0;
-    }
-    return n;
-  }
-
-  if (kind === K.PAY) {
-    rows.push(Object.assign({}, base, {
-      date: parseDate_(answers[Q.PAY_DATE], now),
-      type: '支払い',
-      place: PLACE.FUND,
-      amountOut: amountOf(Q.PAY_AMOUNT),
-      desc: answers[Q.PAY_DESC] || '',
-      receipt: answers[Q.PAY_RECEIPT] || '',
-    }));
-    if (answers[Q.PAY_RECEIPT] && answers[Q.PAY_RECEIPT].indexOf('なし') !== -1) {
-      warnings.push('レシート・領収書なしの支払いが登録されました。');
-    }
-  } else if (kind === K.SALE) {
-    const saleType = answers[Q.SALE_TYPE] ? '(' + answers[Q.SALE_TYPE] + ')' : '';
-    rows.push(Object.assign({}, base, {
-      id: nextEnvelopeId_(ledger),
-      date: parseDate_(answers[Q.SALE_DATE], now),
-      type: '売上受取',
-      place: PLACE.ENVELOPE,
-      amountIn: amountOf(Q.SALE_AMOUNT),
-      desc: (answers[Q.SALE_DESC] || '') + saleType,
-      status: ENVELOPE_STATUS.KEPT,
-    }));
-  } else if (kind === K.DEPOSIT) {
-    const date = parseDate_(answers[Q.DEPOSIT_DATE], now);
-    const kept = {};
-    ledger.forEach(function (r) {
-      if (r.place === PLACE.ENVELOPE && r.status === ENVELOPE_STATUS.KEPT && r.id) kept[r.id] = r;
-    });
-    const ids = extractEnvelopeIds_(answers[Q.DEPOSIT_ENVELOPES]);
-    const valid = ids.filter(function (id) { return kept[id]; });
-    ids.forEach(function (id) {
-      if (!kept[id]) warnings.push('封筒 ' + id + ' は保管中の一覧にありません(入金済みの可能性)。');
-    });
-    const bookTotal = valid.reduce(function (s, id) { return s + Number(kept[id].amountIn || 0); }, 0);
-    const reported = amountOf(Q.DEPOSIT_AMOUNT);
-    if (valid.length === 0) {
-      warnings.push('入金した売上封筒が選ばれていません。');
-    } else if (reported && reported !== bookTotal) {
-      warnings.push('入金額が封筒の登録額と合いません。登録額 ' + formatYen_(bookTotal) +
-        ' / 入金額 ' + formatYen_(reported) + ' / 差額 ' + formatYen_(reported - bookTotal));
-    }
-    if (valid.length) {
-      rows.push(Object.assign({}, base, {
-        date: date,
-        type: '銀行入金',
-        place: PLACE.ENVELOPE,
-        amountOut: bookTotal,
-        desc: '封筒 ' + valid.join(' '),
-        memo: '銀行への入金額 ' + formatYen_(reported),
-      }));
-    }
-    settleIds = valid;
-  } else if (kind === K.REFILL) {
-    rows.push(Object.assign({}, base, {
-      date: parseDate_(answers[Q.REFILL_DATE], now),
-      type: '補充',
-      place: PLACE.FUND,
-      amountIn: amountOf(Q.REFILL_AMOUNT),
-      desc: answers[Q.REFILL_SOURCE] || '',
-    }));
-  } else {
-    warnings.push('登録の種類が読み取れませんでした: ' + kind);
-  }
-  return { rows: rows, settleIds: settleIds, warnings: warnings };
+  let from = baseTime;
+  rows.forEach(function (r) {
+    if (r.kind === K.DEPOSIT && r.ts < submitTime && r.ts > from) from = r.ts;
+  });
+  const envelopes = rows.filter(function (r) {
+    return r.kind === K.SALE && r.ts > from && r.ts < submitTime;
+  });
+  const bookTotal = envelopes.reduce(function (s, r) { return s + (Number(r.amount) || 0); }, 0);
+  return { envelopes: envelopes, bookTotal: bookTotal, diff: amount - bookTotal };
 }
 
 /**
- * 台帳から、金庫に「今あるはずの金額」を計算する。
- * @param {Object[]} ledger
- * @param {Date} today
+ * 支払いの登録で、金庫金の残高が下限をまたいで下回ったか。
+ * 下回った状態で登録が続くたびにメールが届かないよう、またいだときだけ true にする。
  */
-function computeSummary_(ledger, today) {
-  const cfg = CASH_CONFIG;
-  let fund = 0;
-  const envelopes = [];
-  ledger.forEach(function (r) {
-    const inn = Number(r.amountIn || 0);
-    const out = Number(r.amountOut || 0);
-    if (r.place === PLACE.FUND) fund += inn - out;
-    if (r.place === PLACE.ENVELOPE && r.status === ENVELOPE_STATUS.KEPT) {
-      envelopes.push({
-        id: r.id, date: r.date, desc: r.desc, amount: inn,
-        days: daysBetween_(r.date, today),
-      });
-    }
-  });
-  envelopes.sort(function (a, b) { return a.date - b.date; });
-  const envelopeTotal = envelopes.reduce(function (s, e) { return s + e.amount; }, 0);
-  const pouchTotal = cfg.POUCH_COUNT * cfg.POUCH_AMOUNT;
-  return {
-    pouchTotal: pouchTotal,
-    fund: fund,
-    refill: Math.max(0, cfg.FUND_BASE - fund),
-    fundLow: fund < cfg.FUND_LOW_ALERT,
-    envelopes: envelopes,
-    envelopeTotal: envelopeTotal,
-    oldEnvelopes: envelopes.filter(function (e) { return e.days > cfg.ENVELOPE_ALERT_DAYS; }),
-    expectedTotal: pouchTotal + fund + envelopeTotal,
-  };
+function crossedLowAlert_(fundAfter, paidAmount) {
+  const limit = CASH_CONFIG.FUND_LOW_ALERT;
+  return fundAfter < limit && fundAfter + paidAmount >= limit;
 }
 
-/** 週次メール・残高シートに使う文面 */
-function summaryLines_(s) {
+/** 未入金の封筒に経過日数を付ける(古い順) */
+function envelopeAges_(list, today) {
+  return list
+    .filter(function (e) { return isDate_(e.date); })
+    .map(function (e) {
+      return Object.assign({}, e, { days: daysBetween_(e.date, today) });
+    })
+    .sort(function (a, b) { return a.date - b.date; });
+}
+
+/** 週次メールの本文 */
+function weeklyReportLines_(b, envelopes) {
   const cfg = CASH_CONFIG;
   const lines = [
-    '金庫に今あるはずの金額: ' + formatYen_(s.expectedTotal),
+    '金庫確認の日です。下の金額を金庫確認表の青い欄に書き写してから、2人で数えてください。',
     '',
-    '1. 釣銭ポーチ: ' + formatYen_(s.pouchTotal) + '(' + formatYen_(cfg.POUCH_AMOUNT) + ' × ' + cfg.POUCH_COUNT + '個)',
-    '2. 金庫金: ' + formatYen_(s.fund) + '(基準額 ' + formatYen_(cfg.FUND_BASE) + '、補充が必要な額 ' + formatYen_(s.refill) + ')',
-    '3. 売上封筒: ' + formatYen_(s.envelopeTotal) + '(' + s.envelopes.length + '件)',
+    '金庫にあるはずの合計: ' + formatYen_(b.total),
+    '',
+    '1. 釣銭ポーチ: ' + formatYen_(b.pouch) + '(' + formatYen_(cfg.POUCH_AMOUNT) + ' × ' + cfg.POUCH_COUNT + '個)',
+    '2. 金庫金: ' + formatYen_(b.fund) + '(基準額 ' + formatYen_(cfg.FUND_BASE) + '、補充が必要な額 ' + formatYen_(b.refill) + ')',
+    '3. 売上封筒: ' + formatYen_(b.envelope) + '(' + envelopes.length + '件)',
   ];
-  s.envelopes.forEach(function (e) {
-    lines.push('   ・' + e.id + ' ' + formatMd_(e.date) + '受取 ' + e.desc + ' ' + formatYen_(e.amount) +
+  envelopes.forEach(function (e) {
+    lines.push('   ・' + formatMd_(e.date) + '受取 ' + e.partner + ' ' + formatYen_(e.amount) +
       '(' + e.days + '日経過' + (e.days > cfg.ENVELOPE_ALERT_DAYS ? ' ※入金が遅れています' : '') + ')');
   });
+  if (b.refill > 0) {
+    lines.push('', '銀行へ行くときに ' + formatYen_(b.refill) +
+      ' を引き出して金庫金を基準額に戻し、フォームで「' + cfg.KINDS.REFILL + '」を登録してください。');
+  }
+  const late = envelopes.filter(function (e) { return e.days > cfg.ENVELOPE_ALERT_DAYS; });
+  if (late.length) {
+    lines.push('', '受け取りから' + cfg.ENVELOPE_ALERT_DAYS + '日を超えた売上封筒が ' + late.length +
+      '件あります。次に銀行へ行くときに必ず入金してください。');
+  }
   return lines;
+}
+
+/**
+ * 現金残高シートに書く内容(A列の見出し, B列の値または関数, C列の説明)。
+ * フォーム回答シートを直接参照するので、行が増えても範囲切れにならない。
+ */
+function balanceSheetRows_(fundCounted, baseTime) {
+  const cfg = CASH_CONFIG;
+  const K = cfg.KINDS;
+  const C = cfg.COLS;
+  const R = "'" + cfg.SHEETS.RESPONSES + "'!";
+  const col = function (c) { return R + c + '2:' + c; };
+  const ts = col(C.TIMESTAMP), kind = col(C.KIND), amt = col(C.AMOUNT);
+  const sumAfter = function (k, cell) {
+    return 'SUMIFS(' + amt + ',' + kind + ',"' + k + '",' + ts + ',">"&' + cell + ')';
+  };
+  // 行番号は下の配列の並びで決まる(4行目から)
+  const rows = [
+    [BAL.TOTAL, '=B5+B6+B11', '①+②+③。週1回の金庫確認で、実際に数えた合計と比べる'],
+    [BAL.POUCH, cfg.POUCH_COUNT * cfg.POUCH_AMOUNT, formatYen_(cfg.POUCH_AMOUNT) + '×' + cfg.POUCH_COUNT + '個(固定)'],
+    [BAL.FUND, '=B7+B8-B9', '購入の現金払いに使うお金'],
+    [BAL.FUND_COUNTED, fundCounted, '基準日時に数えた金庫金(ポーチ・売上封筒を除く)'],
+    [BAL.FUND_IN, '=' + sumAfter(K.REFILL, '$B$14') + '+' + sumAfter(K.OTHER_IN, '$B$14'), ''],
+    [BAL.FUND_OUT, '=' + sumAfter(K.PAY, '$B$14'), ''],
+    [BAL.REFILL, '=MAX(0,' + cfg.FUND_BASE + '-B6)', '基準額 ' + formatYen_(cfg.FUND_BASE) + ' に戻すための額'],
+    [BAL.ENVELOPE, '=' + sumAfter(K.SALE, '$B$15'), '銀行へ行くときに全部入金する'],
+    [BAL.ENVELOPE_COUNT, '=COUNTIFS(' + kind + ',"' + K.SALE + '",' + ts + ',">"&$B$15)', ''],
+    ['', '', ''],
+    [BAL.BASE_TIME, baseTime, 'この日時より後に登録したものだけを計算する。金庫を数え直したら、ここと数えた金額を更新'],
+    [BAL.LAST_DEPOSIT, '=MAX($B$14,IFERROR(MAXIFS(' + ts + ',' + kind + ',"' + K.DEPOSIT + '"),0))', '自動'],
+  ];
+  return rows;
+}
+
+/** 未入金の売上封筒の一覧(現金残高シートの18行目から)を出す関数 */
+function envelopeListFormula_() {
+  const cfg = CASH_CONFIG;
+  const C = cfg.COLS;
+  const R = "'" + cfg.SHEETS.RESPONSES + "'!";
+  const col = function (c) { return R + c + '2:' + c; };
+  return '=IFERROR(FILTER({' + [C.DATE, C.PARTNER, C.DESC, C.AMOUNT, C.STAFF, C.TIMESTAMP].map(col).join(',') +
+    '},' + col(C.KIND) + '="' + cfg.KINDS.SALE + '",' + col(C.TIMESTAMP) + '>$B$15),"なし")';
 }

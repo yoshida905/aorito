@@ -1,4 +1,4 @@
-// gas-cash/Ledger.gs の計算ロジックのテスト。実行: node --test tests/
+// gas-cash/Ledger.gs の計算ロジックのテスト。実行: node --test tests/ledger.test.js
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -9,93 +9,89 @@ function load() {
   const dir = path.join(__dirname, '..', 'gas-cash');
   const src = ['Config.gs', 'Ledger.gs']
     .map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n') +
-    '\n;({CASH_CONFIG, PLACE, ENVELOPE_STATUS, parseAmount_, parseDate_, buildEntries_,' +
-    ' computeSummary_, envelopeLabel_, extractEnvelopeIds_, summaryLines_});';
+    '\n;({CASH_CONFIG, BAL, parseAmount_, parseDateTime_, formatYen_, checkDeposit_, crossedLowAlert_,' +
+    ' envelopeAges_, weeklyReportLines_, balanceSheetRows_, envelopeListFormula_});';
   return vm.runInNewContext(src, {});
 }
 
 const G = load();
-const Q = G.CASH_CONFIG.Q;
 const K = G.CASH_CONFIG.KINDS;
-const NOW = new Date(2026, 9, 5, 10, 0);
-
-// buildEntries_ の結果を台帳に反映する(Code.gs の appendLedgerRows_ + settleEnvelopes_ 相当)
-function apply(ledger, answers, now = NOW) {
-  const r = G.buildEntries_(answers, ledger, now);
-  const next = ledger.map((row) => Object.assign({}, row));
-  next.forEach((row) => {
-    if (r.settleIds.includes(row.id)) row.status = G.ENVELOPE_STATUS.DEPOSITED;
-  });
-  return { ledger: next.concat(r.rows), result: r };
-}
-
-const opening = [{ id: '', date: new Date(2026, 9, 1), type: '開始残高', place: G.PLACE.FUND, amountIn: 100000, amountOut: '' }];
+const at = (d, h = 12) => new Date(2026, 8, d, h, 0);
 
 test('金額の読み取り', () => {
   assert.equal(G.parseAmount_('1,320'), 1320);
   assert.equal(G.parseAmount_('３００００円'), 30000);
-  assert.equal(G.parseAmount_('¥ 600'), 600);
+  assert.equal(G.parseAmount_(2181), 2181);
   assert.ok(Number.isNaN(G.parseAmount_('千円')));
-  assert.ok(Number.isNaN(G.parseAmount_('')));
 });
 
-test('日付の読み取り', () => {
-  const d = G.parseDate_('2026/09/27', null);
-  assert.deepEqual([d.getFullYear(), d.getMonth(), d.getDate()], [2026, 8, 27]);
-  assert.equal(G.parseDate_('', 'fallback'), 'fallback');
+test('日時の読み取り', () => {
+  const d = G.parseDateTime_('2026/09/27 15:30');
+  assert.deepEqual([d.getFullYear(), d.getMonth(), d.getDate(), d.getHours(), d.getMinutes()], [2026, 8, 27, 15, 30]);
+  assert.equal(G.parseDateTime_('2026-09-27').getHours(), 0);
+  assert.equal(G.parseDateTime_('きのう'), null);
 });
 
-test('支払い・売上受取・補充で残高が合う', () => {
-  let s = { ledger: opening };
-  s = apply(s.ledger, { [Q.KIND]: K.PAY, [Q.STAFF]: '山田', [Q.PAY_DATE]: '2026/10/02', [Q.PAY_AMOUNT]: '9240', [Q.PAY_DESC]: '消耗品', [Q.PAY_RECEIPT]: 'あり(レシート置き場に保管した)' });
-  s = apply(s.ledger, { [Q.KIND]: K.PAY, [Q.STAFF]: '鈴木', [Q.PAY_DATE]: '2026/10/03', [Q.PAY_AMOUNT]: '600', [Q.PAY_DESC]: '駐車場代', [Q.PAY_RECEIPT]: 'あり(レシート置き場に保管した)' });
-  s = apply(s.ledger, { [Q.KIND]: K.SALE, [Q.STAFF]: '佐藤', [Q.SALE_DATE]: '2026/09/15', [Q.SALE_AMOUNT]: '30000', [Q.SALE_DESC]: 'A社', [Q.SALE_TYPE]: 'ケータリング' });
-  s = apply(s.ledger, { [Q.KIND]: K.SALE, [Q.STAFF]: '佐藤', [Q.SALE_DATE]: '2026/10/04', [Q.SALE_AMOUNT]: '44400', [Q.SALE_DESC]: 'B社', [Q.SALE_TYPE]: 'オードブル' });
+test('銀行入金: 基準日時と直前の入金より後の売上封筒だけを合計する', () => {
+  const base = at(27, 15);
+  const rows = [
+    { ts: at(20), kind: K.SALE, amount: 99999 }, // 基準日時より前 → 対象外
+    { ts: at(28), kind: K.SALE, amount: 30000 },
+    { ts: at(28, 13), kind: K.PAY, amount: 500 },
+    { ts: at(29), kind: K.DEPOSIT, amount: 30000 }, // 1回目の入金
+    { ts: at(30), kind: K.SALE, amount: 44400 },
+    { ts: at(30, 18), kind: K.SALE, amount: 100100 },
+  ];
+  const now = at(30, 20);
+  const r = G.checkDeposit_(rows.concat([{ ts: now, kind: K.DEPOSIT, amount: 144500 }]), base, now, 144500);
+  assert.equal(r.envelopes.length, 2);
+  assert.equal(r.bookTotal, 144500);
+  assert.equal(r.diff, 0);
 
-  const sum = G.computeSummary_(s.ledger, NOW);
-  assert.equal(sum.pouchTotal, 50000);
-  assert.equal(sum.fund, 100000 - 9240 - 600);
-  assert.equal(sum.refill, 9840);
-  assert.equal(sum.envelopeTotal, 74400);
-  assert.equal(sum.envelopes.length, 2);
-  assert.equal(sum.envelopes[0].id, 'U0001'); // 古い順
-  assert.equal(sum.oldEnvelopes.length, 1); // 9/15受取は20日経過
-  assert.equal(sum.expectedTotal, 50000 + 90160 + 74400);
+  const short = G.checkDeposit_(rows, base, now, 143500);
+  assert.equal(short.diff, -1000);
 
-  s = apply(s.ledger, { [Q.KIND]: K.REFILL, [Q.STAFF]: '社長', [Q.REFILL_DATE]: '2026/10/05', [Q.REFILL_AMOUNT]: '9840', [Q.REFILL_SOURCE]: '銀行口座から引き出し' });
-  assert.equal(G.computeSummary_(s.ledger, NOW).fund, 100000);
+  const first = G.checkDeposit_(rows, base, at(29), 30000);
+  assert.equal(first.bookTotal, 30000, '1回目は9/28の封筒だけ');
 });
 
-test('銀行入金で封筒が保管中から外れ、金額違いは警告', () => {
-  let s = { ledger: opening };
-  s = apply(s.ledger, { [Q.KIND]: K.SALE, [Q.SALE_DATE]: '2026/10/01', [Q.SALE_AMOUNT]: '30000', [Q.SALE_DESC]: 'A社' });
-  s = apply(s.ledger, { [Q.KIND]: K.SALE, [Q.SALE_DATE]: '2026/10/02', [Q.SALE_AMOUNT]: '44400', [Q.SALE_DESC]: 'B社' });
-  const labels = G.computeSummary_(s.ledger, NOW).envelopes
-    .map((e) => G.envelopeLabel_({ id: e.id, date: e.date, desc: e.desc, amountIn: e.amount }));
-  assert.ok(!labels.some((l) => l.includes(',')), 'チェックボックスの区切りと衝突しないこと');
-
-  // U0001 だけ入金、報告額が1,000円少ない
-  s = apply(s.ledger, { [Q.KIND]: K.DEPOSIT, [Q.DEPOSIT_DATE]: '2026/10/05', [Q.DEPOSIT_ENVELOPES]: labels[0], [Q.DEPOSIT_AMOUNT]: '29000' });
-  assert.deepEqual([...s.result.settleIds], ['U0001']);
-  assert.equal(s.result.warnings.length, 1);
-  assert.match(s.result.warnings[0], /合いません/);
-  const sum = G.computeSummary_(s.ledger, NOW);
-  assert.equal(sum.envelopeTotal, 44400);
-  assert.equal(sum.fund, 100000, '売上封筒の入金は金庫金に影響しない');
-
-  // 同じ封筒をもう一度入金しようとしたら警告
-  s = apply(s.ledger, { [Q.KIND]: K.DEPOSIT, [Q.DEPOSIT_ENVELOPES]: labels.join(', '), [Q.DEPOSIT_AMOUNT]: '44400' });
-  assert.deepEqual([...s.result.settleIds], ['U0002']);
-  assert.ok(s.result.warnings.some((w) => w.includes('U0001')));
-  assert.equal(G.computeSummary_(s.ledger, NOW).envelopeTotal, 0);
+test('残高下限のメールは、下回った1回目だけ', () => {
+  const limit = G.CASH_CONFIG.FUND_LOW_ALERT;
+  assert.equal(G.crossedLowAlert_(limit - 1, 5000), true);
+  assert.equal(G.crossedLowAlert_(limit - 6000, 5000), false, 'すでに下回っていた');
+  assert.equal(G.crossedLowAlert_(limit, 5000), false);
 });
 
-test('金額が読めない・レシートなしは警告', () => {
-  const r = G.buildEntries_({ [Q.KIND]: K.PAY, [Q.PAY_AMOUNT]: 'せんえん', [Q.PAY_RECEIPT]: 'なし(理由を支払先の欄に書いた)' }, opening, NOW);
-  assert.equal(r.warnings.length, 2);
+test('週次メール: 経過日数と入金遅れの警告', () => {
+  const today = at(30);
+  const env = G.envelopeAges_([
+    { date: at(10), partner: 'A社', amount: 30000 },
+    { date: at(29), partner: 'B社', amount: 44400 },
+  ], today);
+  assert.deepEqual([...env.map((e) => e.days)], [20, 1]);
+  const text = G.weeklyReportLines_({ total: 154368, pouch: 50000, fund: 29968, refill: 70032, envelope: 74400 }, env).join('\n');
+  assert.match(text, /あるはずの合計: 154,368円/);
+  assert.match(text, /補充が必要な額 70,032円/);
+  assert.match(text, /A社 30,000円\(20日経過 ※入金が遅れています\)/);
+  assert.match(text, /14日を超えた売上封筒が 1件/);
 });
 
-test('残高が下限を下回ったら fundLow', () => {
-  const { ledger } = apply(opening, { [Q.KIND]: K.PAY, [Q.PAY_AMOUNT]: '75000', [Q.PAY_RECEIPT]: 'あり' });
-  assert.equal(G.computeSummary_(ledger, NOW).fundLow, true);
+test('現金残高シート: 行番号と参照がずれていない', () => {
+  const rows = G.balanceSheetRows_(29968, at(27, 15));
+  const rowOf = (label) => 4 + rows.findIndex((r) => r[0] === label);
+  assert.equal(rowOf(G.BAL.TOTAL), 4);
+  assert.equal(rows[0][1], `=B${rowOf(G.BAL.POUCH)}+B${rowOf(G.BAL.FUND)}+B${rowOf(G.BAL.ENVELOPE)}`);
+  const fund = rows.find((r) => r[0] === G.BAL.FUND)[1];
+  assert.equal(fund, `=B${rowOf(G.BAL.FUND_COUNTED)}+B${rowOf(G.BAL.FUND_IN)}-B${rowOf(G.BAL.FUND_OUT)}`);
+  assert.equal(rowOf(G.BAL.REFILL), 10);
+  assert.equal(rowOf(G.BAL.BASE_TIME), 14);
+  assert.equal(rowOf(G.BAL.LAST_DEPOSIT), 15);
+  // 金庫金の計算は $B$14(基準日時)、売上封筒は $B$15(最後の入金日時)より後を数える
+  assert.match(rows.find((r) => r[0] === G.BAL.FUND_OUT)[1], /"出金\(支払い\)".*\$B\$14/);
+  assert.match(rows.find((r) => r[0] === G.BAL.ENVELOPE)[1], /\$B\$15/);
+  assert.match(G.envelopeListFormula_(), /\$B\$15/);
+  // 範囲の最終行を固定しない(旧シートは30行目までしか集計していなかった)
+  assert.ok(!/[A-Z]2:[A-Z]\d/.test(JSON.stringify(rows)));
+  // 処理区分はすべて「入金」「出金」で始まる(入出金履歴・月別集計の判定に使う)
+  Object.values(K).forEach((k) => assert.match(k, /^(入金|出金)/));
 });
