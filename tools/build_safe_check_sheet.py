@@ -14,7 +14,8 @@ HEAD_FILL = PatternFill("solid", fgColor="D9D9D9")
 INPUT_FILL = PatternFill("solid", fgColor="FFF2CC")
 YEN = '#,##0;[Red]-#,##0;""'  # 0は印刷時に空欄に見せる
 
-DENOMS = [10000, 5000, 2000, 1000, 500, 100, 50, 10, 5, 1]
+FLOAT_AMOUNT = 100000  # 決められた釣銭準備金の額
+DENOMS = [10000, 5000, 1000, 500, 100, 50, 10, 5, 1]  # 2,000円札は使わない
 
 
 def f(size=10, bold=False, color="000000"):
@@ -98,14 +99,16 @@ def build_sheet(ws, example=False):
     box_range(ws, f"G{r}:H{r}", HEAD_FILL)
 
     # 合計がちょうど100,000円になる記入例
-    sample_counts = {10000: 3, 5000: 4, 2000: 0, 1000: 30, 500: 20,
+    sample_counts = {10000: 3, 5000: 4, 1000: 30, 500: 20,
                      100: 80, 50: 20, 10: 80, 5: 20, 1: 100}
     left, right = DENOMS[:5], DENOMS[5:]
     first_row = 8
     for i in range(5):
         row = first_row + i
-        for denom, (dc, nc, ac, ac2) in [(left[i], ("A", "B", "C", None)),
-                                         (right[i], ("E", "F", "G", "H"))]:
+        pairs = [(left[i], ("A", "B", "C", None))]
+        if i < len(right):
+            pairs.append((right[i], ("E", "F", "G", "H")))
+        for denom, (dc, nc, ac, ac2) in pairs:
             label = f"{denom:,}円" + ("札" if denom >= 1000 else "玉")
             put(ws, f"{dc}{row}", label, align="center")
             put(ws, f"{nc}{row}", sample_counts[denom] if example else None,
@@ -121,8 +124,8 @@ def build_sheet(ws, example=False):
     r = last_row + 2  # 14
     rows = [
         ("① 実際の合計", f"=SUM(C{first_row}:C{last_row})+SUM(G{first_row}:G{last_row})", False),
-        ("② 決められた準備金の額", 100000 if example else None, True),
-        ("③ 差額(①−②)", f"=IF(D{r+1}=\"\",\"\",D{r}-D{r+1})", False),
+        ("② 決められた準備金の額", FLOAT_AMOUNT, False),
+        ("③ 差額(①−②)", None, False),
     ]
     for k, (label, val, is_input) in enumerate(rows):
         row = r + k
@@ -131,13 +134,14 @@ def build_sheet(ws, example=False):
             fill=INPUT_FILL if is_input else None)
         ws.row_dimensions[row].height = 22
     merge(ws, f"E{r}:H{r+2}",
-          "②は毎回同じ金額。事前に決めて印刷前に記入しておく。\n"
+          f"②は{FLOAT_AMOUNT:,}円で固定。\n"
           "③が0でなければ「4. 差額があったとき」を必ず記入。",
           size=9, wrap=True, border=False, color="595959")
     ws[f"D{r}"].number_format = YEN
     ws[f"D{r+2}"].number_format = '#,##0;[Red]-#,##0;0'
-    # 空欄でも0と表示させないよう、②未記入時は""を返す式にしている
-    ws[f"D{r+2}"].value = f'=IF(D{r+1}="","",D{r}-D{r+1})'
+    # 枚数が未記入(印刷直後)のときは差額を空欄にする
+    counts = f"B{first_row}:B{last_row},F{first_row}:F{first_row + len(right) - 1}"
+    ws[f"D{r+2}"].value = f'=IF(COUNT({counts})=0,"",D{r}-D{r+1})'
     after_float = r + 2  # 16
 
     # --- 2. 現場売上金・預かり金 ---
@@ -238,7 +242,7 @@ def build_guide(ws):
         ("金庫チェック表の使い方", True),
         ("", False),
         ("1. 「チェック表」シートを印刷する(A4縦1枚)。記入例は「記入例」シート。", False),
-        ("2. 印刷前に「② 決められた準備金の額」だけは毎回同じ金額を入れておく。", False),
+        (f"2. 釣銭準備金は{FLOAT_AMOUNT:,}円で固定(2,000円札は使わないため欄なし)。", False),
         ("3. 週1回、決めた曜日・時刻に、担当者と確認者の2人で金庫を開けて数える。", False),
         ("4. 黄色の欄だけ記入する。白い欄は計算欄(Excelで入力すると自動計算、手書きなら電卓で計算)。", False),
         ("5. 差額が1円でもあれば「4. 差額があったとき」を書き、当日中に責任者へ報告する。", False),
