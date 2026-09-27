@@ -11,6 +11,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('金庫')
     .addItem('週次メールを今すぐ送る', 'sendWeeklyReport')
+    .addItem('担当者の選択肢を反映', 'applyStaffNames')
     .addSeparator()
     .addItem('初期設定(最初に1回だけ)', 'setupCashManagement')
     .addToUi();

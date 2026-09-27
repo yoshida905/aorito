@@ -35,7 +35,7 @@ function setupCashManagement() {
   writeBalanceSheet_(ss, fundCounted, baseTime);
   updateHistoryAndMonthly_(ss);
   updateResponseSideSummary_(ss);
-  const formMsg = updateFormChoices_(ss);
+  const formMsg = updateFormChoices_(ss) + '\n' + updateStaffItem_(ss);
   installTriggers_(ss);
 
   ui.alert('初期設定が完了しました。\n\n' + formMsg +
@@ -143,6 +143,49 @@ function updateFormChoices_(ss) {
     return '「' + cfg.Q.KIND + '」が選択式ではないため、選択肢は変更していません。手順書を見て手で変更してください。';
   }
   return 'フォームの「' + cfg.Q.KIND + '」の選択肢を5つに変更しました。';
+}
+
+/**
+ * フォームの「担当者」を Config.gs の STAFF_NAMES に合わせる。メニューからも実行できる。
+ * 質問を作り直すと回答シートの列がずれるため、既存の質問をそのまま使う:
+ * - プルダウン/選択式 → 選択肢を担当者名にする
+ * - 記述式 → 担当者名以外を入力できないようにする
+ */
+function updateStaffItem_(ss) {
+  const cfg = CASH_CONFIG;
+  const names = cfg.STAFF_NAMES;
+  if (!names.length) return '';
+  const url = (ss || SpreadsheetApp.getActiveSpreadsheet()).getFormUrl();
+  if (!url) return 'フォームが見つからないため、担当者は変更していません。';
+  const item = FormApp.openByUrl(url).getItems()
+    .filter(function (it) { return it.getTitle() === cfg.Q.STAFF; })[0];
+  if (!item) return 'フォームに「' + cfg.Q.STAFF + '」の質問が見つからないため、担当者は変更していません。';
+
+  const type = item.getType();
+  if (type === FormApp.ItemType.LIST) {
+    item.asListItem().setChoiceValues(names).setRequired(true);
+    return '「担当者」のプルダウンを' + names.length + '名にしました。';
+  }
+  if (type === FormApp.ItemType.MULTIPLE_CHOICE) {
+    item.asMultipleChoiceItem().setChoiceValues(names).setRequired(true);
+    return '「担当者」の選択肢を' + names.length + '名にしました。';
+  }
+  if (type === FormApp.ItemType.TEXT) {
+    const validation = FormApp.createTextValidation()
+      .setHelpText('次の名前(名字)で入力してください: ' + names.join('・'))
+      .requireTextMatchesPattern(staffPattern_(names))
+      .build();
+    item.asTextItem().setValidation(validation).setHelpText('名字だけ: ' + names.join('・')).setRequired(true);
+    return '「担当者」は記述式のため、' + names.length + '名の名字以外は入力できないようにしました。' +
+      'プルダウンにしたい場合は、フォームの編集画面で質問の種類を「プルダウン」に変えてから、' +
+      'メニュー「金庫 > 担当者の選択肢を反映」を実行してください。';
+  }
+  return '「担当者」の質問の種類に対応していないため、変更していません。';
+}
+
+/** メニューから担当者の選択肢だけを反映する */
+function applyStaffNames() {
+  SpreadsheetApp.getUi().alert(updateStaffItem_() || 'Config.gs の STAFF_NAMES が空です。');
 }
 
 function installTriggers_(ss) {

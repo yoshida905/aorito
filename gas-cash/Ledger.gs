@@ -153,3 +153,9 @@ function envelopeListFormula_() {
   return '=IFERROR(FILTER({' + [C.DATE, C.PARTNER, C.DESC, C.AMOUNT, C.STAFF, C.TIMESTAMP].map(col).join(',') +
     '},' + col(C.KIND) + '="' + cfg.KINDS.SALE + '",' + col(C.TIMESTAMP) + '>$B$15),"なし")';
 }
+
+/** 担当者名だけを受け付ける入力チェックの正規表現(前後の半角・全角スペースは許す) */
+function staffPattern_(names) {
+  const escaped = names.map(function (n) { return n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); });
+  return '^[\\s\u3000]*(' + escaped.join('|') + ')[\\s\u3000]*$';
+}

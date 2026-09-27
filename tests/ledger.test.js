@@ -10,7 +10,7 @@ function load() {
   const src = ['Config.gs', 'Ledger.gs']
     .map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n') +
     '\n;({CASH_CONFIG, BAL, parseAmount_, parseDateTime_, formatYen_, checkDeposit_, crossedLowAlert_,' +
-    ' envelopeAges_, weeklyReportLines_, balanceSheetRows_, envelopeListFormula_});';
+    ' envelopeAges_, staffPattern_, weeklyReportLines_, balanceSheetRows_, envelopeListFormula_});';
   return vm.runInNewContext(src, {});
 }
 
@@ -94,4 +94,11 @@ test('現金残高シート: 行番号と参照がずれていない', () => {
   assert.ok(!/[A-Z]2:[A-Z]\d/.test(JSON.stringify(rows)));
   // 処理区分はすべて「入金」「出金」で始まる(入出金履歴・月別集計の判定に使う)
   Object.values(K).forEach((k) => assert.match(k, /^(入金|出金)/));
+});
+
+test('担当者の入力チェック: 登録した名字だけ通す', () => {
+  const re = new RegExp(G.staffPattern_(G.CASH_CONFIG.STAFF_NAMES));
+  assert.equal(G.CASH_CONFIG.STAFF_NAMES.length, 11);
+  ['迫田', '渡邊', '楠', ' 平山 ', '花川\u3000'].forEach((n) => assert.ok(re.test(n), n));
+  ['平山　きよ美', '空野英夫', '渡辺', '山', ''].forEach((n) => assert.ok(!re.test(n), n));
 });
