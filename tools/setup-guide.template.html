@@ -112,13 +112,29 @@
 
   <div class="facts">
     <div><b>作業する場所</b><span>パソコン(スマホ不可)</span></div>
-    <div><b>必要なもの</b><span>フォームとシートの編集権限</span></div>
+    <div><b>必要なもの</b><span>フォームとシートの「編集者」権限</span></div>
     <div><b>入力する数字</b><span>数えた日時と 29968</span></div>
   </div>
   <p class="note"><b>注意</b> 途中で分からなくなったら、その画面のスクリーンショットを送ってください。途中でやめても、スプレッドシートの記録は消えません。</p>
 
-  <h2>A. 担当者をプルダウンにする(フォーム側)</h2>
+  <h2>はじめに: 編集できる権限があるか確認する</h2>
+  <p>スプレッドシートを開いたとき、上の方に <span class="ui">コメントのみ</span> や <span class="ui">閲覧のみ</span> と出ていたり、メニューの <span class="ui">拡張機能</span> が薄い灰色で押せなかったりする場合は、編集の権限がありません。このままでは先に進めません。</p>
   <ol class="steps" style="--start:0">
+    <li><strong>持ち主(オーナー)を確かめる</strong>
+      メニューの <span class="ui">ファイル</span> → <span class="ui">詳細</span> を開くと「オーナー」の名前が出ます。</li>
+    <li><strong>オーナーに編集者にしてもらう</strong>
+      オーナーの方に、次の2つをお願いします。
+      <ul class="sub">
+        <li>スプレッドシート: 右上の <span class="ui">共有</span> → 自分の名前の右の <span class="ui">閲覧者(コメント可)</span> → <span class="ui">編集者</span> → <span class="ui">保存</span></li>
+        <li>フォーム: フォームの編集画面の右上の <span class="ui">︙</span> → <span class="ui">共同編集者を追加</span> → 自分のメールアドレスを追加</li>
+      </ul>
+    </li>
+    <li><strong>オーナー本人が作業するのも一案</strong>
+      通知メールや毎週の自動処理は、初期設定をした人のアカウントで動きます。担当者が退職しても止まらないよう、会社で管理しているアカウント(オーナー)で初期設定するのが確実です。</li>
+  </ol>
+
+  <h2>A. 担当者をプルダウンにする(フォーム側)</h2>
+  <ol class="steps" style="--start:3">
     <li><strong>スプレッドシートを開く</strong>
       「大阪GB｜現金出納帳」を開きます。</li>
     <li><strong>フォームの編集画面を開く</strong>
@@ -135,7 +151,7 @@
   </ol>
 
   <h2>B. 仕組みを貼り付ける(スプレッドシート側)</h2>
-  <ol class="steps" style="--start:4">
+  <ol class="steps" style="--start:7">
     <li><strong>Apps Scriptを開く</strong>
       スプレッドシートに戻り、上のメニューで <span class="ui">拡張機能</span> → <span class="ui">Apps Script</span> をクリックします。新しいタブで、プログラムを書く画面が開きます。</li>
     <li><strong>最初からある文字を消す</strong>
@@ -164,7 +180,7 @@
   </ol>
 
   <h2>C. 初期設定を実行する</h2>
-  <ol class="steps" style="--start:9">
+  <ol class="steps" style="--start:12">
     <li><strong>初期設定を選ぶ</strong>
       <span class="ui">金庫</span> → <span class="ui">初期設定(最初に1回だけ)</span> をクリックします。</li>
     <li><strong>許可する(初回だけ)</strong>
@@ -199,9 +215,10 @@
     <table>
       <thead><tr><th>こうなった</th><th>こうする</th></tr></thead>
       <tbody>
+        <tr><td>「拡張機能」が灰色で押せない</td><td>編集の権限がない。「はじめに」の手順でオーナーに編集者にしてもらう</td></tr>
         <tr><td>メニューに「金庫」が出ない</td><td>Apps Scriptで保存できているか確認し、スプレッドシートをもう一度再読み込みする</td></tr>
         <tr><td>赤い文字のエラーが出た</td><td>その画面のスクリーンショットを送る</td></tr>
-        <tr><td>担当者が「記述式のため…」と表示された</td><td>A-4 をやってから、<span class="ui">金庫</span> → <span class="ui">担当者の選択肢を反映</span> を実行する</td></tr>
+        <tr><td>担当者が「記述式のため…」と表示された</td><td>手順7 をやってから、<span class="ui">金庫</span> → <span class="ui">担当者の選択肢を反映</span> を実行する</td></tr>
         <tr><td>合計が 79,968 にならない</td><td>「現金残高」シートの B7 が 29968、B14 が数えた日時か確認する。違えば直接書き換えてよい</td></tr>
       </tbody>
     </table>
