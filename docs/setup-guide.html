@@ -159,7 +159,7 @@
       <p class="note"><b>確認</b> 消す前の中身が <code>function myFunction() {}</code> の3行だけでなければ、消さずに止めて連絡してください。別の仕組みが入っている可能性があります。</p>
     </li>
     <li><strong>このページのコードをコピーする</strong>
-      下のボタンを押すと、仕組み全体(594行)がコピーされます。
+      下のボタンを押すと、仕組み全体(595行)がコピーされます。
       <div class="copybox">
         <div class="copyrow">
           <button class="copy" id="copyBtn" type="button">コードをコピー</button>
@@ -518,7 +518,8 @@ function updateHistoryAndMonthly_(ss) {
   if (history) {
     // 「入金(…)」「出金(…)」の先頭2文字で増減を判定する(改修前の「入金」「出金」もそのまま扱える)
     history.getRange(&#x27;J1&#x27;).setFormula(
-      &#x27;={&quot;増減額&quot;;IF(A2:A1000=&quot;&quot;,&quot;&quot;,IF(LEFT(B2:B1000,2)=&quot;入金&quot;,D2:D1000,IF(LEFT(B2:B1000,2)=&quot;出金&quot;,-D2:D1000,&quot;&quot;)))}&#x27;);
+      // setFormula では範囲の計算にならないため ARRAYFORMULA で囲む(囲まないと #VALUE! になる)
+      &#x27;=ARRAYFORMULA({&quot;増減額&quot;;IF(A2:A1000=&quot;&quot;,&quot;&quot;,IF(LEFT(B2:B1000,2)=&quot;入金&quot;,D2:D1000,IF(LEFT(B2:B1000,2)=&quot;出金&quot;,-D2:D1000,&quot;&quot;)))})&#x27;);
   }
   const monthly = ss.getSheetByName(cfg.SHEETS.MONTHLY);
   if (monthly) {

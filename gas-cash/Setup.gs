@@ -91,7 +91,8 @@ function updateHistoryAndMonthly_(ss) {
   if (history) {
     // 「入金(…)」「出金(…)」の先頭2文字で増減を判定する(改修前の「入金」「出金」もそのまま扱える)
     history.getRange('J1').setFormula(
-      '={"増減額";IF(A2:A1000="","",IF(LEFT(B2:B1000,2)="入金",D2:D1000,IF(LEFT(B2:B1000,2)="出金",-D2:D1000,"")))}');
+      // setFormula では範囲の計算にならないため ARRAYFORMULA で囲む(囲まないと #VALUE! になる)
+      '=ARRAYFORMULA({"増減額";IF(A2:A1000="","",IF(LEFT(B2:B1000,2)="入金",D2:D1000,IF(LEFT(B2:B1000,2)="出金",-D2:D1000,"")))})');
   }
   const monthly = ss.getSheetByName(cfg.SHEETS.MONTHLY);
   if (monthly) {
