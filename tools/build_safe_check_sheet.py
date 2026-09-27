@@ -5,7 +5,7 @@ python3 tools/build_safe_check_sheet.py で docs/safe-check-sheet.xlsx を出力
 考え方:
 - 入金と出金を別の列に書く(▲の付け忘れで入出金が分からなくなるのを防ぐ)
 - 週の終わりに「帳簿の残高」と「実際に数えた金額」を比べる
-- 基準額(10万円)を超えた分は銀行へ入金し、毎週10万円から始める
+- 基準額(15万円)を超えた分は銀行へ入金し、毎週15万円から始める
 """
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -13,7 +13,7 @@ from openpyxl.worksheet.page import PageMargins
 
 OUT = "docs/safe-check-sheet.xlsx"
 FONT = "Arial"
-BASE_AMOUNT = 100000  # 金庫に置いておく基準額(毎週この額から始める)
+BASE_AMOUNT = 150000  # 金庫に置いておく基準額(毎週この額から始める)
 DENOMS = [10000, 5000, 1000, 500, 100, 50, 10, 5, 1]  # 2,000円札は使わない
 LOG_ROWS = 18  # 1週間分の記入行数(9月実績は月30件前後=週8件程度)
 
@@ -36,8 +36,8 @@ EXAMPLE_LOG = [
     ("9/5", "買", "業務スーパー", "山田", None, 594, "✓"),
     ("9/6", "買", "駐車場代", "鈴木", None, 600, "✓"),
 ]
-EXAMPLE_COUNTS = {10000: 12, 5000: 4, 1000: 15, 500: 8, 100: 20,
-                  50: 10, 10: 30, 5: 8, 1: 18}  # 合計161,858円
+EXAMPLE_COUNTS = {10000: 17, 5000: 4, 1000: 15, 500: 8, 100: 20,
+                  50: 10, 10: 30, 5: 8, 1: 18}  # 合計211,858円
 
 
 def f(size=10, bold=False, color="000000"):
