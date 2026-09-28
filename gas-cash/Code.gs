@@ -57,8 +57,10 @@ function onCashFormSubmit(e) {
         msgs.push('銀行入金が登録されましたが、未入金の売上封筒が登録されていません。売上の登録漏れがないか確認してください。');
       } else if (result.diff !== 0) {
         msgs.push('銀行への入金額が、登録済みの売上封筒の合計と合いません。\n' +
-          '封筒の合計 ' + formatYen_(result.bookTotal) + '(' + result.envelopes.length + '件) / 入金額 ' +
-          formatYen_(amount) + ' / 差額 ' + formatYen_(result.diff));
+          '封筒の合計 ' + formatYen_(result.salesTotal) + '(' + result.envelopes.length + '件) - 金庫金へ移した小銭 ' +
+          formatYen_(result.coins) + ' = ' + formatYen_(result.bookTotal) + ' / 入金額 ' +
+          formatYen_(amount) + ' / 差額 ' + formatYen_(result.diff) + '\n' +
+          '小銭を金庫金へ移した場合は、「' + cfg.KINDS.COIN + '」を登録してください(入金より前の日時で登録されていないと差し引かれません)。');
       }
     }
 

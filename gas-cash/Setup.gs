@@ -129,12 +129,13 @@ function updateFormChoices_(ss) {
   if (!item) return 'フォームに「' + cfg.Q.KIND + '」の質問が見つからなかったため、選択肢は変更していません。';
 
   const K = cfg.KINDS;
-  const values = [K.PAY, K.SALE, K.REFILL, K.OTHER_IN, K.DEPOSIT];
+  const values = [K.PAY, K.SALE, K.REFILL, K.OTHER_IN, K.COIN, K.DEPOSIT];
   const help = '支払い → ' + K.PAY + '\n' +
     'ケータリング・オードブルの現金売上(茶封筒に入れて金庫へ) → ' + K.SALE + '\n' +
     '銀行から引き出して金庫金に足した → ' + K.REFILL + '\n' +
     'おつりの戻り・返金・空き瓶代など → ' + K.OTHER_IN + '\n' +
-    '金庫の売上封筒を全部銀行に入金した(金額は入金した合計) → ' + K.DEPOSIT;
+    '入金の前に、売上封筒の小銭を金庫金へ移した → ' + K.COIN + '\n' +
+    '金庫の売上封筒のお札を全部入金した(金額は入金した合計) → ' + K.DEPOSIT;
   const type = item.getType();
   if (type === FormApp.ItemType.MULTIPLE_CHOICE) {
     item.asMultipleChoiceItem().setChoiceValues(values).setHelpText(help);
@@ -143,7 +144,7 @@ function updateFormChoices_(ss) {
   } else {
     return '「' + cfg.Q.KIND + '」が選択式ではないため、選択肢は変更していません。手順書を見て手で変更してください。';
   }
-  return 'フォームの「' + cfg.Q.KIND + '」の選択肢を5つに変更しました。';
+  return 'フォームの「' + cfg.Q.KIND + '」の選択肢を' + values.length + 'つに変更しました。';
 }
 
 /**

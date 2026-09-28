@@ -92,8 +92,14 @@ test('現金残高シート: 行番号と参照がずれていない', () => {
   assert.match(G.envelopeListFormula_(), /\$B\$15/);
   // 範囲の最終行を固定しない(旧シートは30行目までしか集計していなかった)
   assert.ok(!/[A-Z]2:[A-Z]\d/.test(JSON.stringify(rows)));
-  // 処理区分はすべて「入金」「出金」で始まる(入出金履歴・月別集計の判定に使う)
-  Object.values(K).forEach((k) => assert.match(k, /^(入金|出金)/));
+  // 処理区分は「入金」「出金」「振替」で始まる(入出金履歴の増減は先頭2文字で判定。振替は増減なし)
+  Object.values(K).forEach((k) => assert.match(k, /^(入金|出金|振替)/));
+  assert.match(K.COIN, /^振替/);
+  // 補充額はATMで引き出せる1,000円単位
+  assert.match(rows.find((r) => r[0] === G.BAL.REFILL)[1], /FLOOR\(100000-B6,1000\)/);
+  // 小銭の振替は金庫金を増やし、売上封筒から差し引く
+  assert.match(rows.find((r) => r[0] === G.BAL.FUND_IN)[1], new RegExp(K.COIN.replace(/[()]/g, '\\$&')));
+  assert.match(rows.find((r) => r[0] === G.BAL.ENVELOPE)[1], new RegExp('-SUMIFS\\([^)]*"' + K.COIN.replace(/[()]/g, '\\$&')));
 });
 
 test('担当者の入力チェック: 登録した名字だけ通す', () => {
@@ -101,4 +107,22 @@ test('担当者の入力チェック: 登録した名字だけ通す', () => {
   assert.equal(G.CASH_CONFIG.STAFF_NAMES.length, 11);
   ['迫田', '渡邊', '楠', ' 平山 ', '花川\u3000'].forEach((n) => assert.ok(re.test(n), n));
   ['平山　きよ美', '空野英夫', '渡辺', '山', ''].forEach((n) => assert.ok(!re.test(n), n));
+});
+
+test('コンビニ入金: 小銭を金庫金へ移した分は入金額から差し引いて照合する', () => {
+  const base = at(27, 15);
+  const rows = [
+    { ts: at(28), kind: K.SALE, amount: 44400 },
+    { ts: at(29), kind: K.SALE, amount: 30150 },
+    { ts: at(30, 9), kind: K.COIN, amount: 550 }, // 400 + 150 の小銭を金庫金へ
+  ];
+  const now = at(30, 10);
+  const ok = G.checkDeposit_(rows, base, now, 74000);
+  assert.equal(ok.salesTotal, 74550);
+  assert.equal(ok.coins, 550);
+  assert.equal(ok.bookTotal, 74000);
+  assert.equal(ok.diff, 0);
+  // 振替を登録し忘れると、小銭の分だけ差額として通知される
+  const missing = G.checkDeposit_(rows.slice(0, 2), base, now, 74000);
+  assert.equal(missing.diff, -550);
 });

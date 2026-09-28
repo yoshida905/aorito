@@ -47,6 +47,7 @@ function daysBetween_(from, to) {
 /**
  * 売上封筒の銀行入金を登録したとき、登録済みの未入金封筒の合計と入金額を比べる。
  * 未入金の封筒 = 基準日時と直前の銀行入金より後に登録され、今回の登録より前に登録された売上。
+ * 同じ期間に金庫金へ移した小銭(振替)は、入金しなくてよい額として差し引く。
  * @param {{ts: Date, kind: string, amount: number}[]} rows フォーム回答(今回の行も含んでよい)
  * @param {Date} baseTime 基準日時(金庫を数えた日時)
  * @param {Date} submitTime 今回の登録日時
@@ -61,8 +62,12 @@ function checkDeposit_(rows, baseTime, submitTime, amount) {
   const envelopes = rows.filter(function (r) {
     return r.kind === K.SALE && r.ts > from && r.ts < submitTime;
   });
-  const bookTotal = envelopes.reduce(function (s, r) { return s + (Number(r.amount) || 0); }, 0);
-  return { envelopes: envelopes, bookTotal: bookTotal, diff: amount - bookTotal };
+  const coins = rows.filter(function (r) {
+    return r.kind === K.COIN && r.ts > from && r.ts < submitTime;
+  }).reduce(function (s, r) { return s + (Number(r.amount) || 0); }, 0);
+  const salesTotal = envelopes.reduce(function (s, r) { return s + (Number(r.amount) || 0); }, 0);
+  const bookTotal = salesTotal - coins;
+  return { envelopes: envelopes, salesTotal: salesTotal, coins: coins, bookTotal: bookTotal, diff: amount - bookTotal };
 }
 
 /**
@@ -132,10 +137,11 @@ function balanceSheetRows_(fundCounted, baseTime) {
     [BAL.POUCH, cfg.POUCH_COUNT * cfg.POUCH_AMOUNT, formatYen_(cfg.POUCH_AMOUNT) + '×' + cfg.POUCH_COUNT + '個(固定)'],
     [BAL.FUND, '=B7+B8-B9', '購入の現金払いに使うお金'],
     [BAL.FUND_COUNTED, fundCounted, '基準日時に数えた金庫金(ポーチ・売上封筒を除く)'],
-    [BAL.FUND_IN, '=' + sumAfter(K.REFILL, '$B$14') + '+' + sumAfter(K.OTHER_IN, '$B$14'), ''],
+    [BAL.FUND_IN, '=' + sumAfter(K.REFILL, '$B$14') + '+' + sumAfter(K.OTHER_IN, '$B$14') + '+' + sumAfter(K.COIN, '$B$14'), ''],
     [BAL.FUND_OUT, '=' + sumAfter(K.PAY, '$B$14'), ''],
-    [BAL.REFILL, '=MAX(0,' + cfg.FUND_BASE + '-B6)', '基準額 ' + formatYen_(cfg.FUND_BASE) + ' に戻すための額'],
-    [BAL.ENVELOPE, '=' + sumAfter(K.SALE, '$B$15'), '銀行へ行くときに全部入金する'],
+    // ATMは1,000円単位でしか引き出せないため、1,000円単位に切り捨てる
+    [BAL.REFILL, '=MAX(0,FLOOR(' + cfg.FUND_BASE + '-B6,1000))', '基準額 ' + formatYen_(cfg.FUND_BASE) + ' に戻すために引き出す額(1,000円単位)'],
+    [BAL.ENVELOPE, '=' + sumAfter(K.SALE, '$B$15') + '-' + sumAfter(K.COIN, '$B$15'), 'お札は全部入金する。小銭は金庫金へ移す(振替)'],
     [BAL.ENVELOPE_COUNT, '=COUNTIFS(' + kind + ',"' + K.SALE + '",' + ts + ',">"&$B$15)', ''],
     ['', '', ''],
     [BAL.BASE_TIME, baseTime, 'この日時より後に登録したものだけを計算する。金庫を数え直したら、ここと数えた金額を更新'],
