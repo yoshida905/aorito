@@ -43,8 +43,9 @@ const CASH_CONFIG = {
     REFILL: '入金(金庫金の補充)',
     OTHER_IN: '入金(おつり・返金の戻り・その他)',
     DEPOSIT: '出金(売上封筒を全部銀行へ入金)',
-    // コンビニATMは硬貨を入金できないため、売上封筒の小銭は金庫金へ移す(銀行入金の前に登録する)
-    COIN: '振替(売上封筒の小銭を金庫金へ)',
+    // 入金の日に、売上封筒から小銭と補充分を金庫金へ移す(コンビニATMは硬貨を入金できないため)。
+    // 銀行入金の前に登録する。これで銀行から引き出して補充する必要がなくなる
+    COIN: '振替(売上封筒から金庫金へ)',
   },
 
   // 既存のシート名
@@ -85,7 +86,7 @@ const BAL = {
   POUCH: '① 釣銭ポーチ',
   FUND: '② 金庫金(支払い用)',
   FUND_COUNTED: '　数えた金額(基準)',
-  FUND_IN: '　基準日時より後の入金(補充・おつり・売上の小銭等)',
+  FUND_IN: '　基準日時より後の入金(売上封筒からの振替・補充・おつり等)',
   FUND_OUT: '　基準日時より後の支払い',
   REFILL: '　補充が必要な額',
   ENVELOPE: '③ 売上封筒(銀行へ未入金)',
@@ -204,8 +205,9 @@ function weeklyReportLines_(b, envelopes) {
       '(' + e.days + '日経過' + (e.days > cfg.ENVELOPE_ALERT_DAYS ? ' ※入金が遅れています' : '') + ')');
   });
   if (b.refill > 0) {
-    lines.push('', '銀行へ行くときに ' + formatYen_(b.refill) +
-      ' を引き出して金庫金を基準額に戻し、フォームで「' + cfg.KINDS.REFILL + '」を登録してください。');
+    lines.push('', '次の入金の日に、売上封筒から ' + formatYen_(b.refill) + '(小銭を含む)を金庫金へ移し、' +
+      'フォームで「' + cfg.KINDS.COIN + '」を登録してから、残りのお札を入金してください。' +
+      '売上封筒が足りないときは、銀行から引き出して「' + cfg.KINDS.REFILL + '」を登録してください。');
   }
   const late = envelopes.filter(function (e) { return e.days > cfg.ENVELOPE_ALERT_DAYS; });
   if (late.length) {
@@ -237,9 +239,8 @@ function balanceSheetRows_(fundCounted, baseTime) {
     [BAL.FUND_COUNTED, fundCounted, '基準日時に数えた金庫金(ポーチ・売上封筒を除く)'],
     [BAL.FUND_IN, '=' + sumAfter(K.REFILL, '$B$14') + '+' + sumAfter(K.OTHER_IN, '$B$14') + '+' + sumAfter(K.COIN, '$B$14'), ''],
     [BAL.FUND_OUT, '=' + sumAfter(K.PAY, '$B$14'), ''],
-    // ATMは1,000円単位でしか引き出せないため、1,000円単位に切り捨てる
-    [BAL.REFILL, '=MAX(0,FLOOR(' + cfg.FUND_BASE + '-B6,1000))', '基準額 ' + formatYen_(cfg.FUND_BASE) + ' に戻すために引き出す額(1,000円単位)'],
-    [BAL.ENVELOPE, '=' + sumAfter(K.SALE, '$B$15') + '-' + sumAfter(K.COIN, '$B$15'), 'お札は全部入金する。小銭は金庫金へ移す(振替)'],
+    [BAL.REFILL, '=MAX(0,' + cfg.FUND_BASE + '-B6)', '基準額 ' + formatYen_(cfg.FUND_BASE) + ' に戻す額。入金の日に売上封筒から振替で移す'],
+    [BAL.ENVELOPE, '=' + sumAfter(K.SALE, '$B$15') + '-' + sumAfter(K.COIN, '$B$15'), '入金の日に、小銭と補充分を金庫金へ振替し、残りのお札を全部入金する'],
     [BAL.ENVELOPE_COUNT, '=COUNTIFS(' + kind + ',"' + K.SALE + '",' + ts + ',">"&$B$15)', ''],
     ['', '', ''],
     [BAL.BASE_TIME, baseTime, 'この日時より後に登録したものだけを計算する。金庫を数え直したら、ここと数えた金額を更新'],
@@ -399,9 +400,9 @@ function updateFormChoices_(ss) {
   const values = [K.PAY, K.SALE, K.REFILL, K.OTHER_IN, K.COIN, K.DEPOSIT];
   const help = '支払い → ' + K.PAY + '\n' +
     'ケータリング・オードブルの現金売上(茶封筒に入れて金庫へ) → ' + K.SALE + '\n' +
-    '銀行から引き出して金庫金に足した → ' + K.REFILL + '\n' +
+    '銀行から引き出して金庫金に足した(売上封筒が足りないときだけ) → ' + K.REFILL + '\n' +
     'おつりの戻り・返金・空き瓶代など → ' + K.OTHER_IN + '\n' +
-    '入金の前に、売上封筒の小銭を金庫金へ移した → ' + K.COIN + '\n' +
+    '入金の前に、売上封筒から小銭と補充分を金庫金へ移した → ' + K.COIN + '\n' +
     '金庫の売上封筒のお札を全部入金した(金額は入金した合計) → ' + K.DEPOSIT;
   const type = item.getType();
   if (type === FormApp.ItemType.MULTIPLE_CHOICE) {
@@ -519,7 +520,7 @@ function onCashFormSubmit(e) {
         msgs.push('金庫金の残高がマイナス(' + formatYen_(bal.fund) + ')です。登録漏れ・二重登録がないか確認してください。');
       } else if (crossedLowAlert_(bal.fund, amount)) {
         msgs.push('金庫金の残高が ' + formatYen_(bal.fund) + ' になりました。' + formatYen_(bal.refill) +
-          ' の補充が必要です(次に銀行へ行くときに引き出す)。');
+          ' の補充が必要です(次の入金の日に売上封筒から振替)。');
       }
     }
 
@@ -531,10 +532,10 @@ function onCashFormSubmit(e) {
         msgs.push('銀行入金が登録されましたが、未入金の売上封筒が登録されていません。売上の登録漏れがないか確認してください。');
       } else if (result.diff !== 0) {
         msgs.push('銀行への入金額が、登録済みの売上封筒の合計と合いません。\n' +
-          '封筒の合計 ' + formatYen_(result.salesTotal) + '(' + result.envelopes.length + '件) - 金庫金へ移した小銭 ' +
+          '封筒の合計 ' + formatYen_(result.salesTotal) + '(' + result.envelopes.length + '件) - 金庫金へ移した額 ' +
           formatYen_(result.coins) + ' = ' + formatYen_(result.bookTotal) + ' / 入金額 ' +
           formatYen_(amount) + ' / 差額 ' + formatYen_(result.diff) + '\n' +
-          '小銭を金庫金へ移した場合は、「' + cfg.KINDS.COIN + '」を登録してください(入金より前の日時で登録されていないと差し引かれません)。');
+          '売上封筒から金庫金へお金を移した場合は、「' + cfg.KINDS.COIN + '」を登録してください(入金より前に登録されていないと差し引かれません)。');
       }
     }
 

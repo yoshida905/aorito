@@ -119,6 +119,7 @@ def build_sheet(ws, example=False):
     merge(ws, f"E7:H{ptot}",
           "・ポーチは1個ずつ数え、1万円ちょうどか確認する\n"
           "・現場に持ち出し中のポーチは「持出中」と書き、戻ったら数える\n"
+          "・1万円を超えた分は売上封筒へ、足りない分は原因を確認\n"
           "・ポーチのお金を支払いに使わない",
           size=8, wrap=True, border=False, color="595959")
 
@@ -269,7 +270,7 @@ def build_guide(ws):
         ("", False),
         ("ルール", True),
         ("・数える人は毎週交代する(同じ人に固定しない)。", False),
-        ("・売上封筒のお金を、支払いや金庫金の補充に使わない。", False),
+        ("・売上封筒のお金で直接支払わない。金庫金へ移すときは「振替(売上封筒から金庫金へ)」で登録する。", False),
     ]
     for i, (text, bold) in enumerate(lines, start=1):
         c = ws.cell(row=i, column=1, value=text)

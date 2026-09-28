@@ -45,7 +45,7 @@ function onCashFormSubmit(e) {
         msgs.push('金庫金の残高がマイナス(' + formatYen_(bal.fund) + ')です。登録漏れ・二重登録がないか確認してください。');
       } else if (crossedLowAlert_(bal.fund, amount)) {
         msgs.push('金庫金の残高が ' + formatYen_(bal.fund) + ' になりました。' + formatYen_(bal.refill) +
-          ' の補充が必要です(次に銀行へ行くときに引き出す)。');
+          ' の補充が必要です(次の入金の日に売上封筒から振替)。');
       }
     }
 
@@ -57,10 +57,10 @@ function onCashFormSubmit(e) {
         msgs.push('銀行入金が登録されましたが、未入金の売上封筒が登録されていません。売上の登録漏れがないか確認してください。');
       } else if (result.diff !== 0) {
         msgs.push('銀行への入金額が、登録済みの売上封筒の合計と合いません。\n' +
-          '封筒の合計 ' + formatYen_(result.salesTotal) + '(' + result.envelopes.length + '件) - 金庫金へ移した小銭 ' +
+          '封筒の合計 ' + formatYen_(result.salesTotal) + '(' + result.envelopes.length + '件) - 金庫金へ移した額 ' +
           formatYen_(result.coins) + ' = ' + formatYen_(result.bookTotal) + ' / 入金額 ' +
           formatYen_(amount) + ' / 差額 ' + formatYen_(result.diff) + '\n' +
-          '小銭を金庫金へ移した場合は、「' + cfg.KINDS.COIN + '」を登録してください(入金より前の日時で登録されていないと差し引かれません)。');
+          '売上封筒から金庫金へお金を移した場合は、「' + cfg.KINDS.COIN + '」を登録してください(入金より前に登録されていないと差し引かれません)。');
       }
     }
 

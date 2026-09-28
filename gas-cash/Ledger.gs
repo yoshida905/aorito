@@ -106,8 +106,9 @@ function weeklyReportLines_(b, envelopes) {
       '(' + e.days + '日経過' + (e.days > cfg.ENVELOPE_ALERT_DAYS ? ' ※入金が遅れています' : '') + ')');
   });
   if (b.refill > 0) {
-    lines.push('', '銀行へ行くときに ' + formatYen_(b.refill) +
-      ' を引き出して金庫金を基準額に戻し、フォームで「' + cfg.KINDS.REFILL + '」を登録してください。');
+    lines.push('', '次の入金の日に、売上封筒から ' + formatYen_(b.refill) + '(小銭を含む)を金庫金へ移し、' +
+      'フォームで「' + cfg.KINDS.COIN + '」を登録してから、残りのお札を入金してください。' +
+      '売上封筒が足りないときは、銀行から引き出して「' + cfg.KINDS.REFILL + '」を登録してください。');
   }
   const late = envelopes.filter(function (e) { return e.days > cfg.ENVELOPE_ALERT_DAYS; });
   if (late.length) {
@@ -139,9 +140,8 @@ function balanceSheetRows_(fundCounted, baseTime) {
     [BAL.FUND_COUNTED, fundCounted, '基準日時に数えた金庫金(ポーチ・売上封筒を除く)'],
     [BAL.FUND_IN, '=' + sumAfter(K.REFILL, '$B$14') + '+' + sumAfter(K.OTHER_IN, '$B$14') + '+' + sumAfter(K.COIN, '$B$14'), ''],
     [BAL.FUND_OUT, '=' + sumAfter(K.PAY, '$B$14'), ''],
-    // ATMは1,000円単位でしか引き出せないため、1,000円単位に切り捨てる
-    [BAL.REFILL, '=MAX(0,FLOOR(' + cfg.FUND_BASE + '-B6,1000))', '基準額 ' + formatYen_(cfg.FUND_BASE) + ' に戻すために引き出す額(1,000円単位)'],
-    [BAL.ENVELOPE, '=' + sumAfter(K.SALE, '$B$15') + '-' + sumAfter(K.COIN, '$B$15'), 'お札は全部入金する。小銭は金庫金へ移す(振替)'],
+    [BAL.REFILL, '=MAX(0,' + cfg.FUND_BASE + '-B6)', '基準額 ' + formatYen_(cfg.FUND_BASE) + ' に戻す額。入金の日に売上封筒から振替で移す'],
+    [BAL.ENVELOPE, '=' + sumAfter(K.SALE, '$B$15') + '-' + sumAfter(K.COIN, '$B$15'), '入金の日に、小銭と補充分を金庫金へ振替し、残りのお札を全部入金する'],
     [BAL.ENVELOPE_COUNT, '=COUNTIFS(' + kind + ',"' + K.SALE + '",' + ts + ',">"&$B$15)', ''],
     ['', '', ''],
     [BAL.BASE_TIME, baseTime, 'この日時より後に登録したものだけを計算する。金庫を数え直したら、ここと数えた金額を更新'],

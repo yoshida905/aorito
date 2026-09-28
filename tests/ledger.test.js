@@ -72,6 +72,7 @@ test('週次メール: 経過日数と入金遅れの警告', () => {
   const text = G.weeklyReportLines_({ total: 154368, pouch: 50000, fund: 29968, refill: 70032, envelope: 74400 }, env).join('\n');
   assert.match(text, /あるはずの合計: 154,368円/);
   assert.match(text, /補充が必要な額 70,032円/);
+  assert.match(text, /売上封筒から 70,032円/);
   assert.match(text, /A社 30,000円\(20日経過 ※入金が遅れています\)/);
   assert.match(text, /14日を超えた売上封筒が 1件/);
 });
@@ -95,8 +96,7 @@ test('現金残高シート: 行番号と参照がずれていない', () => {
   // 処理区分は「入金」「出金」「振替」で始まる(入出金履歴の増減は先頭2文字で判定。振替は増減なし)
   Object.values(K).forEach((k) => assert.match(k, /^(入金|出金|振替)/));
   assert.match(K.COIN, /^振替/);
-  // 補充額はATMで引き出せる1,000円単位
-  assert.match(rows.find((r) => r[0] === G.BAL.REFILL)[1], /FLOOR\(100000-B6,1000\)/);
+  assert.equal(rows.find((r) => r[0] === G.BAL.REFILL)[1], '=MAX(0,100000-B6)');
   // 小銭の振替は金庫金を増やし、売上封筒から差し引く
   assert.match(rows.find((r) => r[0] === G.BAL.FUND_IN)[1], new RegExp(K.COIN.replace(/[()]/g, '\\$&')));
   assert.match(rows.find((r) => r[0] === G.BAL.ENVELOPE)[1], new RegExp('-SUMIFS\\([^)]*"' + K.COIN.replace(/[()]/g, '\\$&')));
@@ -109,7 +109,7 @@ test('担当者の入力チェック: 登録した名字だけ通す', () => {
   ['平山　きよ美', '空野英夫', '渡辺', '山', ''].forEach((n) => assert.ok(!re.test(n), n));
 });
 
-test('コンビニ入金: 小銭を金庫金へ移した分は入金額から差し引いて照合する', () => {
+test('コンビニ入金: 売上封筒から金庫金へ振替した分は入金額から差し引いて照合する', () => {
   const base = at(27, 15);
   const rows = [
     { ts: at(28), kind: K.SALE, amount: 44400 },
@@ -125,4 +125,14 @@ test('コンビニ入金: 小銭を金庫金へ移した分は入金額から差
   // 振替を登録し忘れると、小銭の分だけ差額として通知される
   const missing = G.checkDeposit_(rows.slice(0, 2), base, now, 74000);
   assert.equal(missing.diff, -550);
+});
+
+test('9/18の封筒の例: 売上255,000円から補充分を振替し、支払いは金庫金から', () => {
+  const base = at(1, 9);
+  const rows = [100000, 72000, 78000, 4000, 1000].map((a, i) => ({ ts: at(2 + i), kind: K.SALE, amount: a }));
+  rows.push({ ts: at(18, 9), kind: K.COIN, amount: 81000 }); // 補充・支払い用に金庫金へ移した額
+  const r = G.checkDeposit_(rows, base, at(18, 10), 174000);
+  assert.equal(r.salesTotal, 255000);
+  assert.equal(r.bookTotal, 174000);
+  assert.equal(r.diff, 0);
 });

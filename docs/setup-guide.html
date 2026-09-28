@@ -159,7 +159,7 @@
       <p class="note"><b>確認</b> 消す前の中身が <code>function myFunction() {}</code> の3行だけでなければ、消さずに止めて連絡してください。別の仕組みが入っている可能性があります。</p>
     </li>
     <li><strong>このページのコードをコピーする</strong>
-      下のボタンを押すと、仕組み全体(607行)がコピーされます。
+      下のボタンを押すと、仕組み全体(608行)がコピーされます。
       <div class="copybox">
         <div class="copyrow">
           <button class="copy" id="copyBtn" type="button">コードをコピー</button>
@@ -212,8 +212,9 @@ const CASH_CONFIG = {
     REFILL: &#x27;入金(金庫金の補充)&#x27;,
     OTHER_IN: &#x27;入金(おつり・返金の戻り・その他)&#x27;,
     DEPOSIT: &#x27;出金(売上封筒を全部銀行へ入金)&#x27;,
-    // コンビニATMは硬貨を入金できないため、売上封筒の小銭は金庫金へ移す(銀行入金の前に登録する)
-    COIN: &#x27;振替(売上封筒の小銭を金庫金へ)&#x27;,
+    // 入金の日に、売上封筒から小銭と補充分を金庫金へ移す(コンビニATMは硬貨を入金できないため)。
+    // 銀行入金の前に登録する。これで銀行から引き出して補充する必要がなくなる
+    COIN: &#x27;振替(売上封筒から金庫金へ)&#x27;,
   },
 
   // 既存のシート名
@@ -254,7 +255,7 @@ const BAL = {
   POUCH: &#x27;① 釣銭ポーチ&#x27;,
   FUND: &#x27;② 金庫金(支払い用)&#x27;,
   FUND_COUNTED: &#x27;　数えた金額(基準)&#x27;,
-  FUND_IN: &#x27;　基準日時より後の入金(補充・おつり・売上の小銭等)&#x27;,
+  FUND_IN: &#x27;　基準日時より後の入金(売上封筒からの振替・補充・おつり等)&#x27;,
   FUND_OUT: &#x27;　基準日時より後の支払い&#x27;,
   REFILL: &#x27;　補充が必要な額&#x27;,
   ENVELOPE: &#x27;③ 売上封筒(銀行へ未入金)&#x27;,
@@ -373,8 +374,9 @@ function weeklyReportLines_(b, envelopes) {
       &#x27;(&#x27; + e.days + &#x27;日経過&#x27; + (e.days &gt; cfg.ENVELOPE_ALERT_DAYS ? &#x27; ※入金が遅れています&#x27; : &#x27;&#x27;) + &#x27;)&#x27;);
   });
   if (b.refill &gt; 0) {
-    lines.push(&#x27;&#x27;, &#x27;銀行へ行くときに &#x27; + formatYen_(b.refill) +
-      &#x27; を引き出して金庫金を基準額に戻し、フォームで「&#x27; + cfg.KINDS.REFILL + &#x27;」を登録してください。&#x27;);
+    lines.push(&#x27;&#x27;, &#x27;次の入金の日に、売上封筒から &#x27; + formatYen_(b.refill) + &#x27;(小銭を含む)を金庫金へ移し、&#x27; +
+      &#x27;フォームで「&#x27; + cfg.KINDS.COIN + &#x27;」を登録してから、残りのお札を入金してください。&#x27; +
+      &#x27;売上封筒が足りないときは、銀行から引き出して「&#x27; + cfg.KINDS.REFILL + &#x27;」を登録してください。&#x27;);
   }
   const late = envelopes.filter(function (e) { return e.days &gt; cfg.ENVELOPE_ALERT_DAYS; });
   if (late.length) {
@@ -406,9 +408,8 @@ function balanceSheetRows_(fundCounted, baseTime) {
     [BAL.FUND_COUNTED, fundCounted, &#x27;基準日時に数えた金庫金(ポーチ・売上封筒を除く)&#x27;],
     [BAL.FUND_IN, &#x27;=&#x27; + sumAfter(K.REFILL, &#x27;$B$14&#x27;) + &#x27;+&#x27; + sumAfter(K.OTHER_IN, &#x27;$B$14&#x27;) + &#x27;+&#x27; + sumAfter(K.COIN, &#x27;$B$14&#x27;), &#x27;&#x27;],
     [BAL.FUND_OUT, &#x27;=&#x27; + sumAfter(K.PAY, &#x27;$B$14&#x27;), &#x27;&#x27;],
-    // ATMは1,000円単位でしか引き出せないため、1,000円単位に切り捨てる
-    [BAL.REFILL, &#x27;=MAX(0,FLOOR(&#x27; + cfg.FUND_BASE + &#x27;-B6,1000))&#x27;, &#x27;基準額 &#x27; + formatYen_(cfg.FUND_BASE) + &#x27; に戻すために引き出す額(1,000円単位)&#x27;],
-    [BAL.ENVELOPE, &#x27;=&#x27; + sumAfter(K.SALE, &#x27;$B$15&#x27;) + &#x27;-&#x27; + sumAfter(K.COIN, &#x27;$B$15&#x27;), &#x27;お札は全部入金する。小銭は金庫金へ移す(振替)&#x27;],
+    [BAL.REFILL, &#x27;=MAX(0,&#x27; + cfg.FUND_BASE + &#x27;-B6)&#x27;, &#x27;基準額 &#x27; + formatYen_(cfg.FUND_BASE) + &#x27; に戻す額。入金の日に売上封筒から振替で移す&#x27;],
+    [BAL.ENVELOPE, &#x27;=&#x27; + sumAfter(K.SALE, &#x27;$B$15&#x27;) + &#x27;-&#x27; + sumAfter(K.COIN, &#x27;$B$15&#x27;), &#x27;入金の日に、小銭と補充分を金庫金へ振替し、残りのお札を全部入金する&#x27;],
     [BAL.ENVELOPE_COUNT, &#x27;=COUNTIFS(&#x27; + kind + &#x27;,&quot;&#x27; + K.SALE + &#x27;&quot;,&#x27; + ts + &#x27;,&quot;&gt;&quot;&amp;$B$15)&#x27;, &#x27;&#x27;],
     [&#x27;&#x27;, &#x27;&#x27;, &#x27;&#x27;],
     [BAL.BASE_TIME, baseTime, &#x27;この日時より後に登録したものだけを計算する。金庫を数え直したら、ここと数えた金額を更新&#x27;],
@@ -568,9 +569,9 @@ function updateFormChoices_(ss) {
   const values = [K.PAY, K.SALE, K.REFILL, K.OTHER_IN, K.COIN, K.DEPOSIT];
   const help = &#x27;支払い → &#x27; + K.PAY + &#x27;\n&#x27; +
     &#x27;ケータリング・オードブルの現金売上(茶封筒に入れて金庫へ) → &#x27; + K.SALE + &#x27;\n&#x27; +
-    &#x27;銀行から引き出して金庫金に足した → &#x27; + K.REFILL + &#x27;\n&#x27; +
+    &#x27;銀行から引き出して金庫金に足した(売上封筒が足りないときだけ) → &#x27; + K.REFILL + &#x27;\n&#x27; +
     &#x27;おつりの戻り・返金・空き瓶代など → &#x27; + K.OTHER_IN + &#x27;\n&#x27; +
-    &#x27;入金の前に、売上封筒の小銭を金庫金へ移した → &#x27; + K.COIN + &#x27;\n&#x27; +
+    &#x27;入金の前に、売上封筒から小銭と補充分を金庫金へ移した → &#x27; + K.COIN + &#x27;\n&#x27; +
     &#x27;金庫の売上封筒のお札を全部入金した(金額は入金した合計) → &#x27; + K.DEPOSIT;
   const type = item.getType();
   if (type === FormApp.ItemType.MULTIPLE_CHOICE) {
@@ -688,7 +689,7 @@ function onCashFormSubmit(e) {
         msgs.push(&#x27;金庫金の残高がマイナス(&#x27; + formatYen_(bal.fund) + &#x27;)です。登録漏れ・二重登録がないか確認してください。&#x27;);
       } else if (crossedLowAlert_(bal.fund, amount)) {
         msgs.push(&#x27;金庫金の残高が &#x27; + formatYen_(bal.fund) + &#x27; になりました。&#x27; + formatYen_(bal.refill) +
-          &#x27; の補充が必要です(次に銀行へ行くときに引き出す)。&#x27;);
+          &#x27; の補充が必要です(次の入金の日に売上封筒から振替)。&#x27;);
       }
     }
 
@@ -700,10 +701,10 @@ function onCashFormSubmit(e) {
         msgs.push(&#x27;銀行入金が登録されましたが、未入金の売上封筒が登録されていません。売上の登録漏れがないか確認してください。&#x27;);
       } else if (result.diff !== 0) {
         msgs.push(&#x27;銀行への入金額が、登録済みの売上封筒の合計と合いません。\n&#x27; +
-          &#x27;封筒の合計 &#x27; + formatYen_(result.salesTotal) + &#x27;(&#x27; + result.envelopes.length + &#x27;件) - 金庫金へ移した小銭 &#x27; +
+          &#x27;封筒の合計 &#x27; + formatYen_(result.salesTotal) + &#x27;(&#x27; + result.envelopes.length + &#x27;件) - 金庫金へ移した額 &#x27; +
           formatYen_(result.coins) + &#x27; = &#x27; + formatYen_(result.bookTotal) + &#x27; / 入金額 &#x27; +
           formatYen_(amount) + &#x27; / 差額 &#x27; + formatYen_(result.diff) + &#x27;\n&#x27; +
-          &#x27;小銭を金庫金へ移した場合は、「&#x27; + cfg.KINDS.COIN + &#x27;」を登録してください(入金より前の日時で登録されていないと差し引かれません)。&#x27;);
+          &#x27;売上封筒から金庫金へお金を移した場合は、「&#x27; + cfg.KINDS.COIN + &#x27;」を登録してください(入金より前に登録されていないと差し引かれません)。&#x27;);
       }
     }
 

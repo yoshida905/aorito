@@ -132,9 +132,9 @@ function updateFormChoices_(ss) {
   const values = [K.PAY, K.SALE, K.REFILL, K.OTHER_IN, K.COIN, K.DEPOSIT];
   const help = '支払い → ' + K.PAY + '\n' +
     'ケータリング・オードブルの現金売上(茶封筒に入れて金庫へ) → ' + K.SALE + '\n' +
-    '銀行から引き出して金庫金に足した → ' + K.REFILL + '\n' +
+    '銀行から引き出して金庫金に足した(売上封筒が足りないときだけ) → ' + K.REFILL + '\n' +
     'おつりの戻り・返金・空き瓶代など → ' + K.OTHER_IN + '\n' +
-    '入金の前に、売上封筒の小銭を金庫金へ移した → ' + K.COIN + '\n' +
+    '入金の前に、売上封筒から小銭と補充分を金庫金へ移した → ' + K.COIN + '\n' +
     '金庫の売上封筒のお札を全部入金した(金額は入金した合計) → ' + K.DEPOSIT;
   const type = item.getType();
   if (type === FormApp.ItemType.MULTIPLE_CHOICE) {
