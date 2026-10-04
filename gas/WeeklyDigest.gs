@@ -97,7 +97,8 @@ function collectEvents_(cal, days, tz) {
       day.items.push({
         // 繰り返し予定は全回で同じIDなので開始時刻を足して区別する
         key: ev.getId() + (ev.isRecurringEvent() ? '|' + ev.getStartTime().getTime() : ''),
-        capacity: cal.DAILY_CAPACITY || 0,
+        capacity: cal.DAILY_CAPACITY || null,
+        kind: cal.TYPE === 'PROJECT' ? projectKind_(title) : '',
         calendar: cal.LABEL,
         type: cal.TYPE,
         title: title,
@@ -350,6 +351,15 @@ function stripHtml_(html) {
 }
 
 /**
+ * 件名の【】より前の最後の文字から種別を判定する。例: 「★確定ケ【直】…」→ケ、「未確定オ【直】…」→オ
+ */
+function projectKind_(title) {
+  const head = title.split('【')[0].trim();
+  const last = head.charAt(head.length - 1);
+  return last === 'ケ' || last === 'オ' ? last : '';
+}
+
+/**
  * Google ToDoリストの未完了タスクを、期限切れ・期間内・期限なしに分ける。
  */
 function collectTasks_(today, lastDay, tz) {
@@ -496,28 +506,42 @@ function renderDigest_(days, tasks, checks, tz) {
 
   // 3. 日別件数
   html.push('<h3>日別の案件数</h3><table style="border-collapse:collapse" cellpadding="4">');
-  html.push('<tr style="background:#eee"><th>日付</th><th>確定</th><th>未確定</th><th>ToDo</th><th>人員</th></tr>');
-  text.push('■ 日別の案件数(確定/未確定/ToDo)');
+  html.push(
+    '<tr style="background:#eee"><th>日付</th><th>確定ケ</th><th>確定オ</th><th>未確定</th><th>ToDo</th><th>人員</th></tr>'
+  );
+  text.push('■ 日別の案件数(確定ケ/確定オ/未確定/ToDo)');
   days.forEach(function (day) {
     const key = Utilities.formatDate(day.date, tz, 'yyyy-MM-dd');
-    const confirmed = countStatus_(day.items, '確定');
+    const confirmedK = countStatus_(day.items, '確定', 'ケ');
+    const confirmedO = countStatus_(day.items, '確定', 'オ');
     const unconfirmed = countStatus_(day.items, '未確定');
     const todo = (tasksByDay[key] || []).length;
     const load = capacityLabel_(day.items);
-    const loadColor = load === '要人員調整' ? '#c62828' : '#ef6c00';
+    const loadColor = load.indexOf('要人員調整') === 0 ? '#c62828' : '#ef6c00';
     html.push(
-      '<tr><td>' + formatDay_(day.date, tz) + '</td><td align="right">' + confirmed + '</td><td align="right">' +
-        unconfirmed + '</td><td align="right">' + todo + '</td><td style="color:' + loadColor + '">' + load + '</td></tr>'
+      '<tr><td>' + formatDay_(day.date, tz) + '</td><td align="right">' + confirmedK + '</td><td align="right">' +
+        confirmedO + '</td><td align="right">' + unconfirmed + '</td><td align="right">' + todo +
+        '</td><td style="color:' + loadColor + '">' + esc_(load) + '</td></tr>'
     );
-    text.push(formatDay_(day.date, tz) + '  ' + confirmed + ' / ' + unconfirmed + ' / ' + todo + (load ? '  ' + load : ''));
+    text.push(
+      formatDay_(day.date, tz) + '  ' + confirmedK + ' / ' + confirmedO + ' / ' + unconfirmed + ' / ' + todo + (load ? '  ' + load : '')
+    );
   });
   const capacities = CONFIG.DIGEST.CALENDARS.filter(function (c) {
     return c.DAILY_CAPACITY;
   }).map(function (c) {
-    return c.LABEL + ' 1日' + c.DAILY_CAPACITY + '件';
+    return (
+      c.LABEL +
+      ' ' +
+      Object.keys(c.DAILY_CAPACITY)
+        .map(function (kind) {
+          return kind + c.DAILY_CAPACITY[kind] + '件';
+        })
+        .join('・')
+    );
   });
   if (capacities.length) {
-    html.push('<tr><td colspan="5" style="color:#888;font-size:12px">上限: ' + esc_(capacities.join('、')) + '</td></tr>');
+    html.push('<tr><td colspan="6" style="color:#888;font-size:12px">上限(この件数で厳しい): ' + esc_(capacities.join('、')) + '</td></tr>');
   }
   html.push('</table>');
   text.push('');
@@ -596,28 +620,33 @@ function autoMark_(task, html) {
 }
 
 /**
- * カレンダーごとの1日の上限と比べる。確定だけで超えたら「要人員調整」、未確定を足すと超えるなら「注意」。
+ * カレンダー・種別(ケ/オ)ごとに1日の上限と比べる。
+ * 確定だけで上限に達したら「要人員調整」、未確定を足すと達するなら「注意(未確定次第)」。例: 「要人員調整(ケ4件)」
  */
 function capacityLabel_(items) {
-  const byCal = {};
+  const groups = {};
   items.forEach(function (it) {
-    if (!it.capacity) return;
-    const c = (byCal[it.calendar] = byCal[it.calendar] || { cap: it.capacity, confirmed: 0, unconfirmed: 0 });
-    if (it.status === '確定') c.confirmed++;
-    if (it.status === '未確定') c.unconfirmed++;
+    if (!it.capacity || !it.capacity[it.kind]) return;
+    const id = it.calendar + '|' + it.kind;
+    const g = (groups[id] = groups[id] || { kind: it.kind, cap: it.capacity[it.kind], confirmed: 0, unconfirmed: 0 });
+    if (it.status === '確定') g.confirmed++;
+    if (it.status === '未確定') g.unconfirmed++;
   });
-  let label = '';
-  Object.keys(byCal).forEach(function (name) {
-    const c = byCal[name];
-    if (c.confirmed > c.cap) label = '要人員調整';
-    else if (!label && c.confirmed + c.unconfirmed > c.cap) label = '注意(未確定次第)';
+  const over = [];
+  const maybe = [];
+  Object.keys(groups).forEach(function (id) {
+    const g = groups[id];
+    if (g.confirmed >= g.cap) over.push(g.kind + g.confirmed + '件');
+    else if (g.confirmed + g.unconfirmed >= g.cap) maybe.push(g.kind + (g.confirmed + g.unconfirmed) + '件');
   });
-  return label;
+  if (over.length) return '要人員調整(' + over.concat(maybe).join('・') + ')';
+  if (maybe.length) return '注意(未確定次第 ' + maybe.join('・') + ')';
+  return '';
 }
 
-function countStatus_(items, status) {
+function countStatus_(items, status, kind) {
   return items.filter(function (it) {
-    return it.status === status;
+    return it.status === status && (!kind || it.kind === kind);
   }).length;
 }
 
