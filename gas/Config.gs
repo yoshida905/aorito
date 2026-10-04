@@ -50,4 +50,29 @@ const CONFIG = {
 
   // 案件管理シートに一致する案件名が見つからなかった場合の記録先(自動作成)
   UNMATCHED_LOG_SHEET_NAME: '未突合ログ',
+
+  // 毎日の「1週間スケジュール+やることリスト」メール(WeeklyDigest.gs)の設定
+  DIGEST: {
+    // 送信先(カンマ区切りで複数可)
+    RECIPIENT: 'yoshida@lit-house.jp',
+    // 送信する時刻(0〜23時)。installDigestTrigger() を実行すると、この時刻台に毎日送信されます
+    SEND_HOUR: 7,
+    // 今日から何日分を載せるか
+    DAYS: 7,
+    // 載せるカレンダー。TYPE が PROJECT のものは件名から「確定/未確定/キャンセル」を判定して集計します
+    CALENDARS: [
+      { LABEL: '吉田 裕紀', ID: 'yoshida@lit-house.jp', TYPE: 'PERSONAL' },
+      {
+        LABEL: 'Mr.BUFFET関西',
+        ID: 'c_074feb03cd6e75fba2abc4b4f8aa87a09efaed5e76eff69eb7c7cb6558bbcb32@group.calendar.google.com',
+        TYPE: 'PROJECT',
+      },
+    ],
+    // Google ToDoリスト(カレンダー右側のToDo)を載せるか
+    INCLUDE_TASKS: true,
+    // 期限なしのToDoが、最終更新からこの日数を超えたら「停滞」と表示する
+    STALE_TASK_DAYS: 7,
+    // 件名が「キャンセル」で始まる案件をメールから除外するか(件数だけ末尾に表示)
+    EXCLUDE_CANCELLED: true,
+  },
 };

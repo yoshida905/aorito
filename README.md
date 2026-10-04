@@ -9,6 +9,7 @@ Google Apps Script(GAS)で自動的に案件管理スプレッドシートへ反
 docs/form-questions.md   Googleフォームに設定する質問項目の設計書
 gas/Config.gs             案件管理シートのID・列名などの設定
 gas/Code.gs                フォーム送信時に実行される自動処理
+gas/WeeklyDigest.gs        毎朝「1週間の予定+やることリスト」をメール送信する処理
 gas/appsscript.json        Apps Scriptマニフェスト
 .clasp.json.example        claspでpush/pullする場合のテンプレート
 ```
@@ -77,3 +78,28 @@ Apps Scriptエディタ左メニューの「トリガー」→「トリガーを
   実シートのヘッダー名に合わせて調整してください(確信度: 中)。
 - 通知チャネルはメール(`MailApp`)をデフォルトにしています。Slack等への変更が必要な場合は
   `gas/Code.gs` の `notifyUrgent_` / `notifyError_` を Incoming Webhook 呼び出しに置き換えてください。
+
+## 毎日の1週間予定メール(WeeklyDigest.gs)
+
+毎朝、今日から7日分の予定とGoogle ToDoリストを1通のメールにまとめて送ります。
+
+### 載る内容(上から順)
+
+1. 期限切れのやること(Google ToDoリスト)
+2. 未確定の案件・要確認(件名に「未確定」を含む案件)
+3. 日別の件数(確定 / 未確定 / ToDo)
+4. 日別の予定(「吉田 裕紀」「Mr.BUFFET関西」の予定と、その日が期限のToDo)
+5. 期限なしのやること(最終更新から7日以上たったものは「停滞」と表示)
+
+キャンセル案件(件名が「キャンセル」で始まるもの)は非表示にし、件数だけ末尾に出します。
+
+### セットアップ
+
+1. `gas/WeeklyDigest.gs` をApps Scriptプロジェクトに追加し、`Config.gs`・`appsscript.json` も最新に置き換える
+   (`appsscript.json` でGoogle ToDoリストを読むための「Tasks API」を有効にしています)
+2. `Config.gs` の `DIGEST` で送信先・送信時刻・対象カレンダーを確認する
+3. エディタで `sendWeeklyDigest` を1回手動実行し、権限を許可してメールが届くことを確認する
+4. エディタで `installDigestTrigger` を1回実行する(毎日 `SEND_HOUR` 時台に自動送信されるようになる)
+
+送信時刻を変えたときは、`SEND_HOUR` を書き換えてから `installDigestTrigger` を再実行してください。
+
