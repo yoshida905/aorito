@@ -66,6 +66,10 @@ const CONFIG = {
         LABEL: 'Mr.BUFFET関西',
         ID: 'c_074feb03cd6e75fba2abc4b4f8aa87a09efaed5e76eff69eb7c7cb6558bbcb32@group.calendar.google.com',
         TYPE: 'PROJECT',
+        // 大阪案件はカレンダー既定色(茶色)で登録されているため、色を個別に変えた予定(福岡・愛媛など)は除外する
+        ONLY_DEFAULT_COLOR: true,
+        // 色の付け忘れに備え、件名にこの地域タグがある予定も除外する
+        EXCLUDE_TAGS: ['【福岡】', '【愛媛】'],
       },
     ],
     // Google ToDoリスト(カレンダー右側のToDo)を載せるか
@@ -74,5 +78,9 @@ const CONFIG = {
     STALE_TASK_DAYS: 7,
     // 件名が「キャンセル」で始まる案件をメールから除外するか(件数だけ末尾に表示)
     EXCLUDE_CANCELLED: true,
+    // 個人カレンダーの終日予定にこの語が含まれる日は休日扱いにし、同じ日の予定を警告する
+    HOLIDAY_KEYWORDS: ['公休', '有給', '休み'],
+    // 未確定案件の件名・説明から「10/5午前中人数確定予定」のような期日を拾い、その日のやることとして表示する
+    FOLLOWUP_PATTERN: /(\d{1,2})\/(\d{1,2})[^\s※/]{0,12}?(確定|連絡|返答|回答|返事)(予定|待ち)/,
   },
 };
