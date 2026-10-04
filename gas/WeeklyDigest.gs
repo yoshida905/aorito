@@ -94,17 +94,19 @@ function collectEvents_(cal, days, tz) {
         return;
       }
       const status = cal.TYPE === 'PROJECT' ? projectStatus_(title) : '';
+      const description = cal.TYPE === 'PROJECT' ? stripHtml_(ev.getDescription() || '') : '';
       day.items.push({
         // 繰り返し予定は全回で同じIDなので開始時刻を足して区別する
         key: ev.getId() + (ev.isRecurringEvent() ? '|' + ev.getStartTime().getTime() : ''),
+        cal: cal,
         capacity: cal.DAILY_CAPACITY || null,
         kind: cal.TYPE === 'PROJECT' ? projectKind_(title) : '',
         calendar: cal.LABEL,
         type: cal.TYPE,
         title: title,
         status: status,
-        // 期日の読み取りに使うので、未確定案件だけ説明文を持っておく
-        description: status === '未確定' ? stripHtml_(ev.getDescription() || '') : '',
+        description: description,
+        headcount: cal.TYPE === 'PROJECT' ? parseHeadcount_(title, description) : 0,
         allDay: ev.isAllDayEvent(),
         start: ev.getStartTime(),
         end: ev.getEndTime(),
@@ -338,6 +340,30 @@ function projectName_(title) {
   return afterTag.split('※')[0].trim();
 }
 
+/**
+ * 案件の人数を読み取る。説明欄の「予定人数：130」「人数　：４０名」→ 件名の「200名」→ 説明欄の「12名分」「20名様」の順に探す。
+ * 見つからなければ0。
+ */
+function parseHeadcount_(title, description) {
+  const toHalf = function (s) {
+    return s.replace(/[０-９]/g, function (c) {
+      return String.fromCharCode(c.charCodeAt(0) - 0xfee0);
+    });
+  };
+  const t = toHalf(title);
+  const d = toHalf(description);
+  const m = /人数[\s　]*[：:][\s　]*(\d+)/.exec(d) || /(\d+)\s*名/.exec(t) || /(\d+)\s*名(様|分)/.exec(d);
+  return m ? Number(m[1]) : 0;
+}
+
+/**
+ * 案件1件を何件分として数えるか。大人数の案件は重く数える。
+ */
+function caseWeight_(it) {
+  const cal = it.cal || {};
+  return cal.LARGE_HEADCOUNT && it.headcount >= cal.LARGE_HEADCOUNT ? cal.LARGE_WEIGHT || 1 : 1;
+}
+
 function normalizeName_(name) {
   return name.replace(/株式会社|㈱|\(株\)|（株）|様|[\s　]/g, '');
 }
@@ -482,6 +508,26 @@ function renderDigest_(days, tasks, checks, tz) {
     text.push('');
   }
 
+  // 種別(ケ/オ)が件名に無い案件。人員上限の計算から漏れるので知らせる
+  const noKind = [];
+  days.forEach(function (day) {
+    day.items.forEach(function (it) {
+      if (it.capacity && !it.kind && (it.status === '確定' || it.status === '未確定')) noKind.push({ day: day, item: it });
+    });
+  });
+  if (noKind.length) {
+    html.push('<h3 style="color:#ef6c00">種別(ケ/オ)未入力の案件(' + noKind.length + '件)</h3>');
+    html.push('<p style="color:#888;margin:0">件名に「確定ケ」「確定オ」が無いため、人員上限の計算に入っていません。</p><ul>');
+    text.push('■ 種別(ケ/オ)未入力の案件(' + noKind.length + '件) ※人員上限の計算に入っていません');
+    noKind.forEach(function (p) {
+      const line = formatDay_(p.day.date, tz) + ' ' + p.item.time + ' ' + p.item.title;
+      html.push('<li>' + esc_(line) + '</li>');
+      text.push('・' + line);
+    });
+    html.push('</ul>');
+    text.push('');
+  }
+
   // 2. 未確定案件(要確認)
   const pending = [];
   days.forEach(function (day) {
@@ -516,15 +562,17 @@ function renderDigest_(days, tasks, checks, tz) {
     const confirmedO = countStatus_(day.items, '確定', 'オ');
     const unconfirmed = countStatus_(day.items, '未確定');
     const todo = (tasksByDay[key] || []).length;
-    const load = capacityLabel_(day.items);
-    const loadColor = load.indexOf('要人員調整') === 0 ? '#c62828' : '#ef6c00';
+    const cap = capacityStatus_(day.items);
+    const loadText = !cap.loadPct && !cap.label ? '' : cap.loadPct + '%' + (cap.label ? ' ' + cap.label : '');
+    const loadColor = cap.label.indexOf('要人員調整') === 0 ? '#c62828' : cap.label ? '#ef6c00' : '#000';
     html.push(
       '<tr><td>' + formatDay_(day.date, tz) + '</td><td align="right">' + confirmedK + '</td><td align="right">' +
         confirmedO + '</td><td align="right">' + unconfirmed + '</td><td align="right">' + todo +
-        '</td><td style="color:' + loadColor + '">' + esc_(load) + '</td></tr>'
+        '</td><td style="color:' + loadColor + '">' + esc_(loadText) + '</td></tr>'
     );
     text.push(
-      formatDay_(day.date, tz) + '  ' + confirmedK + ' / ' + confirmedO + ' / ' + unconfirmed + ' / ' + todo + (load ? '  ' + load : '')
+      formatDay_(day.date, tz) + '  ' + confirmedK + ' / ' + confirmedO + ' / ' + unconfirmed + ' / ' + todo +
+        (loadText ? '  負荷' + loadText : '')
     );
   });
   const capacities = CONFIG.DIGEST.CALENDARS.filter(function (c) {
@@ -537,11 +585,15 @@ function renderDigest_(days, tasks, checks, tz) {
         .map(function (kind) {
           return kind + c.DAILY_CAPACITY[kind] + '件';
         })
-        .join('・')
+        .join('・') +
+      (c.LARGE_HEADCOUNT ? '(' + c.LARGE_HEADCOUNT + '名以上は' + c.LARGE_WEIGHT + '件分)' : '')
     );
   });
   if (capacities.length) {
-    html.push('<tr><td colspan="6" style="color:#888;font-size:12px">上限(この件数で厳しい): ' + esc_(capacities.join('、')) + '</td></tr>');
+    html.push(
+      '<tr><td colspan="6" style="color:#888;font-size:12px">上限(この件数で厳しい): ' + esc_(capacities.join('、')) +
+        '。負荷は確定案件で計算(ケ1件=1/上限)</td></tr>'
+    );
   }
   html.push('</table>');
   text.push('');
@@ -583,11 +635,14 @@ function renderDigest_(days, tasks, checks, tz) {
     items.forEach(function (it) {
       const color = it.status === '未確定' ? '#ef6c00' : it.status === 'キャンセル' ? '#999' : '#000';
       const change = it.change ? '<b style="color:#2e7d32">[' + it.change + ']</b> ' : '';
+      const large = it.cal && it.cal.LARGE_HEADCOUNT && it.headcount >= it.cal.LARGE_HEADCOUNT;
+      const people = it.headcount ? '(' + it.headcount + '名' + (large ? '・大人数' : '') + ')' : '';
       html.push(
         '<li style="color:' + color + '">' + change + esc_(it.time) + ' <span style="color:#888">[' + esc_(it.calendar) +
-          ']</span> ' + esc_(it.title) + '</li>'
+          ']</span> ' + esc_(it.title) + (people ? ' <span style="color:' + (large ? '#c62828' : '#888') + '">' + people + '</span>' : '') +
+          '</li>'
       );
-      text.push('  ' + (it.change ? '[' + it.change + '] ' : '') + it.time + ' [' + it.calendar + '] ' + it.title);
+      text.push('  ' + (it.change ? '[' + it.change + '] ' : '') + it.time + ' [' + it.calendar + '] ' + it.title + people);
     });
     html.push('</ul>');
   });
@@ -620,28 +675,50 @@ function autoMark_(task, html) {
 }
 
 /**
- * カレンダー・種別(ケ/オ)ごとに1日の上限と比べる。
- * 確定だけで上限に達したら「要人員調整」、未確定を足すと達するなら「注意(未確定次第)」。例: 「要人員調整(ケ4件)」
+ * カレンダー・種別(ケ/オ)ごとの上限と、ケとオを合わせた負荷で1日の厳しさを判定する。
+ * 大人数の案件は caseWeight_ の件数分として数える。
+ * 確定だけで上限に達したら「要人員調整」、未確定を足すと達するなら「注意(未確定次第)」。
+ * @return {{label: string, loadPct: (number|null)}} loadPct は確定案件だけの負荷(%)。上限設定が無ければ null
  */
-function capacityLabel_(items) {
+function capacityStatus_(items) {
   const groups = {};
   items.forEach(function (it) {
-    if (!it.capacity || !it.capacity[it.kind]) return;
-    const id = it.calendar + '|' + it.kind;
-    const g = (groups[id] = groups[id] || { kind: it.kind, cap: it.capacity[it.kind], confirmed: 0, unconfirmed: 0 });
-    if (it.status === '確定') g.confirmed++;
-    if (it.status === '未確定') g.unconfirmed++;
+    if (!it.capacity) return;
+    const g = (groups[it.calendar] = groups[it.calendar] || { cal: it.cal, confirmed: {}, all: {} });
+    if (!it.capacity[it.kind]) return;
+    const w = caseWeight_(it);
+    if (it.status === '確定') g.confirmed[it.kind] = (g.confirmed[it.kind] || 0) + w;
+    if (it.status === '確定' || it.status === '未確定') g.all[it.kind] = (g.all[it.kind] || 0) + w;
   });
-  const over = [];
-  const maybe = [];
-  Object.keys(groups).forEach(function (id) {
-    const g = groups[id];
-    if (g.confirmed >= g.cap) over.push(g.kind + g.confirmed + '件');
-    else if (g.confirmed + g.unconfirmed >= g.cap) maybe.push(g.kind + (g.confirmed + g.unconfirmed) + '件');
+
+  const evaluate = function (g, counts) {
+    const caps = g.cal.DAILY_CAPACITY;
+    const reasons = [];
+    let load = 0;
+    Object.keys(caps).forEach(function (kind) {
+      const n = counts[kind] || 0;
+      load += n / caps[kind];
+      if (n >= caps[kind]) reasons.push(kind + n + '件');
+    });
+    const limit = g.cal.TOTAL_LOAD_LIMIT || 0;
+    if (!reasons.length && limit && load >= limit - 1e-9) reasons.push('合計' + Math.round(load * 100) + '%');
+    return { load: load, reasons: reasons };
+  };
+
+  let loadPct = null;
+  let over = [];
+  let maybe = [];
+  Object.keys(groups).forEach(function (name) {
+    const g = groups[name];
+    const confirmed = evaluate(g, g.confirmed);
+    const all = evaluate(g, g.all);
+    loadPct = Math.max(loadPct || 0, Math.round(confirmed.load * 100));
+    if (confirmed.reasons.length) over = over.concat(confirmed.reasons);
+    else if (all.reasons.length) maybe = maybe.concat(all.reasons);
   });
-  if (over.length) return '要人員調整(' + over.concat(maybe).join('・') + ')';
-  if (maybe.length) return '注意(未確定次第 ' + maybe.join('・') + ')';
-  return '';
+  if (over.length) return { label: '要人員調整(' + over.join('・') + ')', loadPct: loadPct };
+  if (maybe.length) return { label: '注意(未確定次第 ' + maybe.join('・') + ')', loadPct: loadPct };
+  return { label: '', loadPct: loadPct };
 }
 
 function countStatus_(items, status, kind) {
