@@ -53,6 +53,8 @@ const CONFIG = {
 
   // 毎日の「1週間スケジュール+やることリスト」メール(WeeklyDigest.gs)の設定
   DIGEST: {
+    // 日付・時刻の基準。プロジェクトのタイムゾーン設定に関係なくこの時間で動く
+    TIME_ZONE: 'Asia/Tokyo',
     // 送信先(カンマ区切りで複数可)
     RECIPIENT: 'yoshida@lit-house.jp',
     // 送信する時刻(0〜23時)。installDigestTrigger() を実行すると、この時刻台に毎日送信されます

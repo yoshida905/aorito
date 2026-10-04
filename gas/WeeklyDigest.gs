@@ -15,15 +15,19 @@ const WEEKDAYS_JA_ = ['日', '月', '火', '水', '木', '金', '土'];
 function sendWeeklyDigest() {
   const cfg = CONFIG.DIGEST;
   try {
-    const tz = Session.getScriptTimeZone();
-    const today = startOfDay_(new Date());
+    const tz = digestTimeZone_();
+    const today = startOfDay_(new Date(), tz);
     const days = buildDays_(today, cfg.DAYS);
 
     cfg.CALENDARS.forEach(function (cal) {
       collectEvents_(cal, days, tz);
     });
     const lastDay = days[days.length - 1].date;
-    const tasks = cfg.INCLUDE_TASKS ? collectTasks_(today, lastDay, tz) : { overdue: [], inRange: [], noDue: [] };
+    // Tasksサービスを追加していないプロジェクトでも、ToDo以外は送れるようにする
+    const tasksReady = typeof Tasks !== 'undefined';
+    const tasks =
+      cfg.INCLUDE_TASKS && tasksReady ? collectTasks_(today, lastDay, tz) : { overdue: [], inRange: [], noDue: [] };
+    tasks.notReady = cfg.INCLUDE_TASKS && !tasksReady;
     addFollowupTasks_(days, tasks, today, lastDay, tz);
 
     const snapshot = buildSnapshot_(days, lastDay, tz);
@@ -56,7 +60,7 @@ function installDigestTrigger() {
     .timeBased()
     .everyDays(1)
     .atHour(CONFIG.DIGEST.SEND_HOUR)
-    .inTimezone(Session.getScriptTimeZone())
+    .inTimezone(digestTimeZone_())
     .create();
 }
 
@@ -447,6 +451,14 @@ function renderDigest_(days, tasks, checks, tz) {
     (tasksByDay[t.dueKey] = tasksByDay[t.dueKey] || []).push(t);
   });
 
+  if (tasks.notReady) {
+    html.push(
+      '<p style="color:#c62828">※ToDoリストを読む設定(Tasksサービスの追加)がまだのため、ToDoは載っていません。</p>'
+    );
+    text.push('※ToDoリストを読む設定(Tasksサービスの追加)がまだのため、ToDoは載っていません。');
+    text.push('');
+  }
+
   // 1. 期限切れのToDo
   if (tasks.overdue.length) {
     html.push('<h3 style="color:#c62828">期限切れのやること(' + tasks.overdue.length + '件)</h3><ul>');
@@ -727,10 +739,15 @@ function countStatus_(items, status, kind) {
   }).length;
 }
 
-function startOfDay_(d) {
-  const r = new Date(d);
-  r.setHours(0, 0, 0, 0);
-  return r;
+function digestTimeZone_() {
+  return CONFIG.DIGEST.TIME_ZONE || Session.getScriptTimeZone();
+}
+
+/**
+ * tz で見た「その日の0時」を返す。プロジェクトのタイムゾーンが違っても日付がずれないようにする。
+ */
+function startOfDay_(d, tz) {
+  return new Date(Utilities.formatDate(d, tz, "yyyy-MM-dd'T'00:00:00XXX"));
 }
 
 function formatDay_(d, tz) {
