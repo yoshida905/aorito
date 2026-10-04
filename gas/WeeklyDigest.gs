@@ -37,7 +37,7 @@ function sendWeeklyDigest() {
       changes: cfg.SHOW_CHANGES ? diffSnapshot_(loadSnapshot_(), snapshot, days, today, tz) : [],
     };
 
-    const subject = '【1週間予定】' + formatDay_(today, tz) + '〜' + formatDay_(lastDay, tz);
+    const subject = (cfg.SUBJECT || '1週間予定') + ' ' + formatDay_(today, tz) + '〜' + formatDay_(lastDay, tz);
     const mail = renderDigest_(days, tasks, checks, tz);
     MailApp.sendEmail({ to: cfg.RECIPIENT, subject: subject, body: mail.text, htmlBody: mail.html });
     // 送信できたときだけ保存する(失敗した日の変更点が翌日に持ち越されるように)
