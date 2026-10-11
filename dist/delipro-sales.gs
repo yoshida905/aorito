@@ -31,6 +31,36 @@ const SALES_CONFIG = {
   // 集計結果を書き込むスプレッドシート。初回実行時に自動で作り、IDをスクリプトプロパティ SALES_SHEET_ID に保存する
   SHEET_NAME: 'デリプロ売上集計',
 
+  // PL(事業別PL)の売上欄の並び。PL転記用のシートは、ここに書いた行番号どおりに数字を置く
+  // (PL側は同じシート名・同じセル番地を IMPORTRANGE で参照すればよい)。
+  // 支払区分はデリプロの名前で書く。r10/r8/r0 = 10%・8%・0%対象(税込)、ex = 計(税抜)
+  // 月の列: PL_FIRST_MONTH 月が PL_FIRST_COLUMN 列で、1か月ごとに2列ずつ右へ
+  PL_FIRST_MONTH: 3,
+  PL_FIRST_COLUMN: 'D',
+  PL_LAYOUT: [
+    { sheet: 'PL_Mr.BUFFET_関西', blocks: [
+      { type: '大阪直販', rows: { 現金: 3, クレジットカード: 4, 請求書: 5, 未定: 6, r10: 7, r8: 8, r0: 9, ex: 10 } },
+      { type: '大阪CS', rows: { 現金: 11, クレジットカード: 12, 請求書: 13, Cqree代理請求: 14, r10: 15, r8: 16, ex: 17 } },
+      { type: '大阪ごちクル', rows: { 現金: 18, クレジットカード: 19, 請求書: 20, ごちくる代理請求: 21, r10: 22, r8: 23, ex: 24 } },
+    ] },
+    { sheet: 'PL_南海(グラン天空)', blocks: [
+      { type: '大阪南海', rows: { 請求書: 25, r8: 26, ex: 27 } },
+    ] },
+    { sheet: 'PL_Mr.BUFFET_東京', blocks: [
+      { type: '東京直販', rows: { 現金: 3, クレジットカード: 4, 請求書: 5, r10: 6, r8: 7, ex: 8 } },
+      { type: '東京CS', rows: { 現金: 9, クレジットカード: 10, 請求書: 11, Cqree代理請求: 12, r10: 13, r8: 14, ex: 15 } },
+      { type: '東京ごちクル', rows: { 現金: 16, クレジットカード: 17, 請求書: 18, ごちくる代理請求: 19, r10: 20, r8: 21, ex: 22 } },
+    ] },
+    // 東海は消費税の行の入れ方(対象額か税額か)が未確認のため、支払区分と税抜だけ
+    { sheet: 'PL_Mr.BUFFET_東海', blocks: [
+      { type: '東海直販', rows: { 現金: 3, クレジットカード: 4, 請求書: 5, ex: 8 } },
+      { type: '東海CS', rows: { 現金: 9, クレジットカード: 10, 請求書: 11, Cqree代理請求: 12, ex: 15 } },
+      { type: '東海ごちくる', rows: { 現金: 16, クレジットカード: 17, 請求書: 18, ごちくる代理請求: 19, ex: 22 } },
+      { type: '東海結膳', rows: { 現金: 23, クレジットカード: 24, 請求書: 25, Cqree代理請求: 26, ex: 28 } },
+      { type: '東海ROK', rows: { 現金: 29, クレジットカード: 30, 請求書: 31, ex: 33 } },
+    ] },
+  ],
+
   // 毎朝の自動実行の時刻(時)。GASの仕様上、この時刻から1時間以内のどこかで実行される
   TRIGGER_HOUR: 6,
   // 月初の何日間、前月分も更新して「保留が残っていないか」を確認するか
@@ -183,6 +213,50 @@ function parseTaxSummary_(html) {
 
 if (typeof module !== 'undefined') module.exports = { parseTaxSummary_ };
 
+// ===== PlLayout.gs =====
+/**
+ * 集計結果を、PL(事業別PL)の売上欄と同じ行・列に並べる(純粋関数。tests/delipro-sales.test.js)。
+ */
+
+/** 'yyyy-MM' の月が、PLの何列目(1始まり)か */
+function plColumnOf_(ym, firstMonth, firstColumn) {
+  const m = Number(ym.slice(5, 7));
+  const idx = (m - firstMonth + 12) % 12;
+  return firstColumn.charCodeAt(0) - 64 + idx * 2;
+}
+
+/**
+ * @param summary summarizeOrders_ の結果(tax 付き)
+ * @return {{cells:{sheet:string,row:number,value:number}[], unmapped:{type:string,item:string,amount:number}[]}}
+ *   unmapped はPLに置き場所がない金額(例: 東京直販の「未定」)。PLに載らず漏れるので知らせる
+ */
+function buildPlCells_(summary, layout) {
+  const cells = [], unmapped = [];
+  const placed = {};
+  layout.forEach(function (sh) {
+    sh.blocks.forEach(function (b) {
+      placed[b.type] = true;
+      const c = summary.cells[b.type] || {};
+      const tx = (summary.tax && summary.tax[b.type]) || { r10: 0, r8: 0, r0: 0, exTax: 0 };
+      Object.keys(b.rows).forEach(function (key) {
+        const value = key === 'ex' ? tx.exTax : /^r(10|8|0)$/.test(key) ? tx[key] : (c[key] || 0);
+        cells.push({ sheet: sh.sheet, row: b.rows[key], value: value });
+      });
+      Object.keys(c).forEach(function (p) {
+        if (!(p in b.rows) && c[p]) unmapped.push({ type: b.type, item: p, amount: c[p] });
+      });
+      if (!('r0' in b.rows) && tx.r0) unmapped.push({ type: b.type, item: '0%対象', amount: tx.r0 });
+    });
+  });
+  // PLに欄がない注文区分(例: 東海卸・山口/福岡・愛媛・区分なし)
+  summary.types.forEach(function (t) {
+    if (!placed[t] && summary.rowTotal[t]) unmapped.push({ type: t, item: '合計', amount: summary.rowTotal[t] });
+  });
+  return { cells: cells, unmapped: unmapped };
+}
+
+if (typeof module !== 'undefined') module.exports = { plColumnOf_, buildPlCells_ };
+
 // ===== SalesSummary.gs =====
 /**
  * デリプロの確定注文を「注文区分×支払区分」で集計し、スプレッドシートに書き込む。
@@ -272,6 +346,8 @@ function summarizeDeliproSales_(fromYmd, toYmd) {
     { title: '保留のみ(取り消される可能性あり)', summary: sum(pending, taxPending) },
   ];
   writeSummarySheet_(fromYmd, toYmd, blocks);
+  // PL転記用のシートは「確定＋保留」で更新する(月の途中は確定＋保留、締めで保留が残っていないことを確認する運用)
+  const unmapped = writePlSheets_(fromYmd.slice(0, 7), blocks[0].summary);
   blocks.forEach(function (b) { Logger.log(b.title + ': ' + b.summary.count + '件 ' + b.summary.total + '円'); });
 
   // 確認が必要な点(区分なし・照合の差)。確定＋保留の表で判定する
@@ -279,6 +355,9 @@ function summarizeDeliproSales_(fromYmd, toYmd) {
   summaryToTable_(blocks[0].summary).slice(1).forEach(function (r) {
     if (r[0] === '区分なし') problems.push('注文区分が未設定の注文があります。デリプロで区分を入れてください');
     else if (/^差/.test(String(r[r.length - 1])) && r[0] !== '合計') problems.push(r[0] + ': 支払区分別の合計と売上分析の合計が合いません(' + r[r.length - 1] + '円)');
+  });
+  unmapped.filter(function (u) { return u.item !== '合計'; }).forEach(function (u) {
+    problems.push(u.type + 'の「' + u.item + '」' + u.amount.toLocaleString() + '円はPLに入れる欄がありません');
   });
   return { blocks: blocks, problems: problems, pendingOrders: pending.orders };
 }
@@ -362,6 +441,82 @@ function openSalesSpreadsheet_() {
   props.setProperty('SALES_SHEET_ID', ss.getId());
   Logger.log('集計用のスプレッドシートを作りました: ' + ss.getUrl());
   return ss;
+}
+
+// ===== PlExport.gs =====
+/**
+ * PL転記用のシート(PLと同じシート名・同じセル番地)への書き込みと、PLの手入力の数字との照合。
+ * PLのファイルには書き込まない。照合のときだけ読み取る(スクリプトプロパティ PL_SHEET_ID)。
+ */
+
+/** 集計結果(確定＋保留)を、転記用シートの該当月の列に書く */
+function writePlSheets_(ym, summary) {
+  const cfg = SALES_CONFIG;
+  const ss = openSalesSpreadsheet_();
+  const col = plColumnOf_(ym, cfg.PL_FIRST_MONTH, cfg.PL_FIRST_COLUMN);
+  const built = buildPlCells_(summary, cfg.PL_LAYOUT);
+  cfg.PL_LAYOUT.forEach(function (sh) {
+    const s = ss.getSheetByName(sh.sheet) || initPlSheet_(ss, sh);
+    s.getRange(2, col).setValue(Number(ym.slice(5, 7)) + '月');
+  });
+  built.cells.forEach(function (c) {
+    ss.getSheetByName(c.sheet).getRange(c.row, col).setValue(c.value).setNumberFormat('#,##0');
+  });
+  return built.unmapped;
+}
+
+/** 転記用シートを作り、A〜C列に区分・項目名を書く */
+function initPlSheet_(ss, sh) {
+  const s = ss.insertSheet(sh.sheet);
+  const label = { r10: '10%対象(税込)', r8: '8%対象(税込)', r0: '0%対象', ex: '計(税抜)' };
+  s.getRange(1, 1).setValue(sh.sheet + '(デリプロから自動・確定＋保留)。PLの同じセル番地に対応');
+  sh.blocks.forEach(function (b) {
+    Object.keys(b.rows).forEach(function (k) {
+      s.getRange(b.rows[k], 2, 1, 2).setValues([[b.type, label[k] || k]]);
+    });
+  });
+  return s;
+}
+
+/**
+ * 前月(またはスクリプトプロパティ COMPARE_MONTH に書いた月。例: 2026-09)をデリプロから集計し、
+ * PLの手入力の数字と照合する(手動実行用)。結果は「PL照合_2026-09」シートに出す。PLは読むだけで書き込まない
+ */
+function comparePlMonth() {
+  const cfg = SALES_CONFIG;
+  const ym = PropertiesService.getScriptProperties().getProperty('COMPARE_MONTH') || Utilities.formatDate(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1), cfg.TIME_ZONE, 'yyyy-MM');
+  const plId = PropertiesService.getScriptProperties().getProperty('PL_SHEET_ID');
+  if (!plId) throw new Error('スクリプトプロパティ PL_SHEET_ID にPLのスプレッドシートIDを登録してください');
+  const from = ym + '-01';
+  const last = new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0);
+  const r = summarizeDeliproSales_(from, Utilities.formatDate(last, cfg.TIME_ZONE, 'yyyy-MM-dd'));
+  const summary = r.blocks[0].summary;
+  const col = plColumnOf_(ym, cfg.PL_FIRST_MONTH, cfg.PL_FIRST_COLUMN);
+  const pl = SpreadsheetApp.openById(plId);
+  const out = [['PLのシート', '行', '区分', '項目', 'PL(手入力)', 'デリプロ(自動)', '差']];
+  const label = { r10: '10%対象', r8: '8%対象', r0: '0%対象', ex: '計(税抜)' };
+  cfg.PL_LAYOUT.forEach(function (sh) {
+    const plSheet = pl.getSheetByName(sh.sheet);
+    sh.blocks.forEach(function (b) {
+      Object.keys(b.rows).forEach(function (k) {
+        const auto = buildPlCells_(summary, [{ sheet: sh.sheet, blocks: [b] }]).cells.filter(function (c) { return c.row === b.rows[k]; })[0].value;
+        const manual = plSheet ? Number(plSheet.getRange(b.rows[k], col).getValue()) || 0 : 0;
+        out.push([sh.sheet, b.rows[k], b.type, label[k] || k, manual, auto, auto - manual]);
+      });
+    });
+  });
+  const ss = openSalesSpreadsheet_();
+  const name = 'PL照合_' + ym;
+  const s = ss.getSheetByName(name) || ss.insertSheet(name);
+  s.clear();
+  s.getRange(1, 1, out.length, out[0].length).setValues(out);
+  s.getRange(1, 1, 1, out[0].length).setFontWeight('bold').setBackground('#eeeeee');
+  s.getRange(2, 5, out.length - 1, 3).setNumberFormat('#,##0');
+  out.slice(1).forEach(function (row, i) {
+    if (row[6] !== 0) s.getRange(i + 2, 7).setBackground('#f4cccc');
+  });
+  s.autoResizeColumns(1, out[0].length);
+  Logger.log(name + ' を作りました: ' + ss.getUrl());
 }
 
 // ===== DeliListParser.gs =====

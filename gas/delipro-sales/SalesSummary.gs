@@ -86,6 +86,8 @@ function summarizeDeliproSales_(fromYmd, toYmd) {
     { title: '保留のみ(取り消される可能性あり)', summary: sum(pending, taxPending) },
   ];
   writeSummarySheet_(fromYmd, toYmd, blocks);
+  // PL転記用のシートは「確定＋保留」で更新する(月の途中は確定＋保留、締めで保留が残っていないことを確認する運用)
+  const unmapped = writePlSheets_(fromYmd.slice(0, 7), blocks[0].summary);
   blocks.forEach(function (b) { Logger.log(b.title + ': ' + b.summary.count + '件 ' + b.summary.total + '円'); });
 
   // 確認が必要な点(区分なし・照合の差)。確定＋保留の表で判定する
@@ -93,6 +95,9 @@ function summarizeDeliproSales_(fromYmd, toYmd) {
   summaryToTable_(blocks[0].summary).slice(1).forEach(function (r) {
     if (r[0] === '区分なし') problems.push('注文区分が未設定の注文があります。デリプロで区分を入れてください');
     else if (/^差/.test(String(r[r.length - 1])) && r[0] !== '合計') problems.push(r[0] + ': 支払区分別の合計と売上分析の合計が合いません(' + r[r.length - 1] + '円)');
+  });
+  unmapped.filter(function (u) { return u.item !== '合計'; }).forEach(function (u) {
+    problems.push(u.type + 'の「' + u.item + '」' + u.amount.toLocaleString() + '円はPLに入れる欄がありません');
   });
   return { blocks: blocks, problems: problems, pendingOrders: pending.orders };
 }

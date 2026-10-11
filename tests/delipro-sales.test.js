@@ -56,3 +56,17 @@ assert.throws(() => parseTaxSummary_(page.replace('8,000)', '9,000)')), /合い�
 
 assert.throws(() => parseDeliDownloadCsv_('"a","b"\n"1","2"'), /見出し/);
 console.log('delipro-sales tests passed');
+
+// PLの並びへの変換
+const { plColumnOf_, buildPlCells_ } = require('../gas/delipro-sales/PlLayout.gs');
+assert.strictEqual(plColumnOf_('2026-03', 3, 'D'), 4);   // D列
+assert.strictEqual(plColumnOf_('2026-10', 3, 'D'), 18);  // R列
+assert.strictEqual(plColumnOf_('2027-02', 3, 'D'), 26);  // Z列
+const plSummary = summarizeOrders_(
+  [{ odid: '1', payment: '請求書', amount: 110000 }, { odid: '2', payment: '未定', amount: 5000 }, { odid: '3', payment: '現金', amount: 7000 }],
+  { 1: '東京直販', 2: '東京直販', 3: '愛媛' }, ['東京直販', '愛媛'], ['現金', '請求書']);
+plSummary.tax = { 東京直販: { total: 115000, exTax: 104630, r10: 110000, r8: 5000, r0: 0 } };
+const pc = buildPlCells_(plSummary, [{ sheet: 'PL_東京', blocks: [{ type: '東京直販', rows: { 現金: 3, 請求書: 5, r10: 6, r8: 7, ex: 8 } }] }]);
+assert.deepStrictEqual(pc.cells.map(c => [c.row, c.value]), [[3, 0], [5, 110000], [6, 110000], [7, 5000], [8, 104630]]);
+assert.deepStrictEqual(pc.unmapped, [{ type: '東京直販', item: '未定', amount: 5000 }, { type: '愛媛', item: '合計', amount: 7000 }]);
+console.log('pl layout tests passed');

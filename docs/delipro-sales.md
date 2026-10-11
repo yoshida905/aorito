@@ -10,8 +10,8 @@ GASでデリプロから自動集計するための仕組みです。
 1. 調査: デリプロのダウンロード(CSV)にどの列があるか確認する(済)
 2. 集計: 注文区分×支払区分の税込金額を出す(済)
 3. 税率(10%・8%・0%)の内訳: 「売上分析(期間)」(analyze_sale_time.php)から区分ごとに取る(済)
-4. 毎朝の自動更新と締めの確認 ← いまここ
-5. PLからの参照
+4. 毎朝の自動更新と締めの確認(済)
+5. PLへの反映: PL転記用のシートとPLの手入力との照合 ← いまここ
 
 ## 集計のしかた
 
@@ -33,6 +33,17 @@ GASでデリプロから自動集計するための仕組みです。
 2. `dist/delipro-sales.gs` の中身を「コード.gs」に丸ごと貼り付けて保存
 3. 「プロジェクトの設定」→「スクリプト プロパティ」に次を登録(コードやGitHubには書かない)
    - `DELIPRO_CONTRACT_ID` / `DELIPRO_STAFF_ID` / `DELIPRO_PASSWORD`(キッチン指示書メールと同じ値)
+
+## PLへの反映
+
+- 集計のたびに、集計用スプレッドシートに PL と同じ名前のシート(`PL_Mr.BUFFET_関西` など)を作り、
+  PLの売上欄と同じセル番地に「確定＋保留」の数字を書く(`PL_LAYOUT`)。PL側は同じ番地を IMPORTRANGE で参照する
+- 10%・8%・0%対象は税込の対象額(PLの今の入れ方と同じ)。計(税抜)はデリプロが計算した税抜をそのまま置く
+- PLに欄がない支払区分(例: 東京直販の「未定」)があれば、毎朝のメールで知らせる
+- `comparePlMonth`: 前月(またはスクリプトプロパティ `COMPARE_MONTH` の月)をデリプロから集計し、
+  PLの手入力の数字と並べた「PL照合_yyyy-MM」シートを作る。PLは読むだけ(スクリプトプロパティ `PL_SHEET_ID`)
+- 注意: PLの「計(税抜)」の式は、税込の対象額に0.1・0.08を掛けて税を引いているため、税抜が小さく出る
+  (正しくは 10/110・8/108)。2026年3〜9月の関西(直販・CS・ごちクル)で計 約68万円
 
 ## 毎朝の自動実行
 
@@ -56,7 +67,7 @@ GASでデリプロから自動集計するための仕組みです。
 
 ## ファイル構成
 
-`gas/delipro-sales/` の `Config.gs`・`SalesParser.gs`・`TaxParser.gs`・`SalesSummary.gs`・`SalesSheet.gs`・`DeliListParser.gs`・`DeliproClient.gs`・`CsvProbe.gs` を
+`gas/delipro-sales/` の `Config.gs`・`SalesParser.gs`・`TaxParser.gs`・`PlLayout.gs`・`SalesSummary.gs`・`SalesSheet.gs`・`PlExport.gs`・`DeliListParser.gs`・`DeliproClient.gs`・`CsvProbe.gs` を
 1つにまとめたものが `dist/delipro-sales.gs` です。デリプロへのログインと検索の部分は
 キッチン指示書メールと同じ内容です。
 
