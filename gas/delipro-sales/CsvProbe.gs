@@ -24,3 +24,23 @@ function probeDeliproCsv() {
   });
   Logger.log('保存先: ' + folder.getUrl() + ' / 注文' + ids.length + '件');
 }
+
+/**
+ * 調査用(1回だけ実行): CSVに無い「注文区分」「事業所」「税率」の取り方を調べるため、
+ * 集配管理の検索結果の画面(HTML)をそのまま「delipro_probe」フォルダに保存する。
+ * 画面の中の選択肢(注文区分など)と、帳票(発注請書など)へのリンクを見る目的で使う。
+ */
+function probeDeliproPages() {
+  const cfg = SALES_CONFIG;
+  const today = Utilities.formatDate(new Date(), cfg.TIME_ZONE, 'yyyy-MM-dd');
+  const client = deliproLogin_();
+  const it = DriveApp.getFoldersByName(cfg.PROBE_FOLDER);
+  const folder = it.hasNext() ? it.next() : DriveApp.createFolder(cfg.PROBE_FOLDER);
+
+  // 検索前の画面と、今日配達分の検索結果(件数が少なく、画面の部品を見るには十分)
+  const top = deliproRequest_(client, 'deli.php', { method: 'get' }).getContentText('UTF-8');
+  folder.createFile('page_deli_top.html', top, MimeType.HTML);
+  deliproSearch_(client, today, today, '0', '0');
+  folder.createFile('page_deli_result.html', client.lastHtml, MimeType.HTML);
+  Logger.log('保存先: ' + folder.getUrl());
+}

@@ -47,6 +47,7 @@ function deliproSearch_(client, fromYmd, toYmd, status, officeId) {
     'image.x': '10', 'image.y': '10',
   };
   const html = deliproRequest_(client, 'deli.php', { method: 'post', payload: payload }).getContentText('UTF-8');
+  client.lastHtml = html; // 調査用(probeDeliproPages)に画面をそのまま残す
   const parsed = parseDeliList_(html);
   if (parsed.total !== null && parsed.total !== parsed.orders.length) {
     throw new Error('集配一覧の件数が合いません(表示' + parsed.total + '件・取得' + parsed.orders.length + '件)。画面の仕様変更の可能性があります');
