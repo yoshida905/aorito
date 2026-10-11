@@ -24,6 +24,10 @@ const KITCHEN_CONFIG = {
   // 毎日の送信時刻(時)。GASの仕様上、この時刻から1時間以内のどこかで実行されます
   TRIGGER_HOUR: 7,
 
+  // PDF読み取りの小分け: 1回に読む注文数と、読み取りの間隔(ミリ秒)
+  OCR_CHUNK_SIZE: 10,
+  OCR_INTERVAL_MS: 3000,
+
   TIME_ZONE: 'Asia/Tokyo',
 };
 
@@ -324,10 +328,14 @@ function runKitchenDigest_(mailTo) {
     const ids = Object.keys(byId);
 
     // 2. キッチン指示書PDFを読み取り、注文状態を付け合わせる
+    // GoogleのPDF読み取り(OCR)は1回に読めるページ数と頻度に上限があるため、
+    // 注文を小分けにしてPDFを取得し、間隔を空けて読み取る(キッチン指示書は1注文=1ページ)
     let orders = [];
-    if (ids.length) {
-      const pdf = deliproKitchenPdf_(client, ids, 'kitchen_scan_' + stamp + '.pdf');
-      orders = parseKitchenText_(extractKitchenPdfText_(pdf), today);
+    for (let i = 0; i < ids.length; i += cfg.OCR_CHUNK_SIZE) {
+      if (i > 0) Utilities.sleep(cfg.OCR_INTERVAL_MS);
+      const chunk = ids.slice(i, i + cfg.OCR_CHUNK_SIZE);
+      const pdf = deliproKitchenPdf_(client, chunk, 'kitchen_scan_' + stamp + '_' + i + '.pdf');
+      orders = orders.concat(parseKitchenText_(extractKitchenPdfTextWithRetry_(pdf), today));
     }
     const seen = {};
     orders.forEach(function (o) {
@@ -370,6 +378,19 @@ function runKitchenDigest_(mailTo) {
   } catch (err) {
     Logger.log('runKitchenDigest_ failed: ' + (err && err.stack ? err.stack : err));
     MailApp.sendEmail(cfg.ADMIN_EMAIL, '【エラー】キッチン指示書メール', String(err && err.stack ? err.stack : err));
+  }
+}
+
+/** 読み取りの頻度制限(rate limit)に当たったら、待ってから再挑戦する */
+function extractKitchenPdfTextWithRetry_(blob) {
+  const waits = [10000, 30000, 60000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return extractKitchenPdfText_(blob);
+    } catch (err) {
+      if (attempt >= waits.length || !/rate limit|User rate|429|503/i.test(String(err))) throw err;
+      Utilities.sleep(waits[attempt]);
+    }
   }
 }
 
