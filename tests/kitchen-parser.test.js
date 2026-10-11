@@ -150,4 +150,16 @@ test('宛先は全角カンマ・読点・空白区切りでも読め、誤り�
   assert.strictEqual(r.invalid.join(','), 'e.jp');
 });
 
+
+test('卸の注文は人数に数えず、大型にもしない', () => {
+  const t = '注文番号 No.4241 10/11(日) お届け サンプルベーカリー 様 1/1 180 バターボム(卸) 600';
+  const o = ctx.parseKitchenText_(t, '2026-10-11')[0];
+  assert.strictEqual(o.wholesale, true);
+  assert.strictEqual(o.headcount, null);
+  o.isLarge = false; o.status = '確定';
+  const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', [o], [], '東海キッチン指示書');
+  assert.ok(mail.subject.includes('大型0件'));
+  assert.ok(mail.text.includes(' 卸 '));
+});
+
 console.log(passed + ' tests passed');

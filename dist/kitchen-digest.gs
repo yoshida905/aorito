@@ -388,7 +388,10 @@ function buildKitchenOrder_(m, body, todayYmd) {
     order.details = parts.join(' ');
   }
 
-  order.headcount = estimateKitchenHeadcount_(order.plans, order.details);
+  // 「(卸)」の商品(プリン・パンなどの卸売)は個数であって人数ではないため、人数を出さない
+  const allText = order.plans.map(function (p) { return p.name; }).join(' ') + ' ' + order.details;
+  order.wholesale = /[（(]卸[)）]/.test(allText);
+  order.headcount = order.wholesale ? null : estimateKitchenHeadcount_(order.plans, order.details);
   return order;
 }
 
@@ -740,12 +743,12 @@ function buildKitchenMail_(today, end, orders, ahead, title) {
       (day.length ? '(' + people(day) + '名)' : '') + '</h4>');
     h.push(day.length ? kitchenTable_(day, today, false) : '<p style="color:#888;margin:0">注文なし</p>');
   }
-  h.push('<p style="color:#888;font-size:12px">人数はキッチン指示書のプラン・料理の数量からの推定です。</p>');
+  h.push('<p style="color:#888;font-size:12px">人数はキッチン指示書のプラン・料理の数量からの推定です。卸(プリン・パンなど)は人数に含めません。</p>');
   h.push('</div>');
 
   const text = [subject, ''].concat(orders.map(function (o) {
     return [kFormatJa_(o.date), o.time, 'No.' + o.number, o.status, o.isLarge ? '【大型】' : '', o.client,
-      (o.headcount || '?') + '名', planText_(o)].join(' ');
+      o.wholesale ? '卸' : (o.headcount || '?') + '名', planText_(o)].join(' ');
   })).join('\n');
 
   return { subject: subject, html: h.join(''), text: text };
@@ -763,7 +766,7 @@ function kitchenTable_(orders, today, showDaysLeft, showDeadline) {
       kEsc_(o.time || '-'),
       kEsc_(o.number),
       isHighlightedPending_(o) ? '<b style="color:#b26a00">保留</b>' : kEsc_(o.status),
-      (o.isLarge ? '<b style="color:#b00020">' : '') + kEsc_(o.headcount ? o.headcount + '名' : '-') + (o.isLarge ? '</b>' : ''),
+      (o.isLarge ? '<b style="color:#b00020">' : '') + kEsc_(o.wholesale ? '卸' : o.headcount ? o.headcount + '名' : '-') + (o.isLarge ? '</b>' : ''),
       kEsc_(o.client),
       kEsc_(planText_(o)),
       kEsc_(o.place),

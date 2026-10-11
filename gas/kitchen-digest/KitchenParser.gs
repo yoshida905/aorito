@@ -70,7 +70,10 @@ function buildKitchenOrder_(m, body, todayYmd) {
     order.details = parts.join(' ');
   }
 
-  order.headcount = estimateKitchenHeadcount_(order.plans, order.details);
+  // 「(卸)」の商品(プリン・パンなどの卸売)は個数であって人数ではないため、人数を出さない
+  const allText = order.plans.map(function (p) { return p.name; }).join(' ') + ' ' + order.details;
+  order.wholesale = /[（(]卸[)）]/.test(allText);
+  order.headcount = order.wholesale ? null : estimateKitchenHeadcount_(order.plans, order.details);
   return order;
 }
 
