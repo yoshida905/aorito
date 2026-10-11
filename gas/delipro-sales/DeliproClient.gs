@@ -27,15 +27,16 @@ function deliproLogin_() {
  * 集配管理で 配達日 from〜to の注文を検索する。
  * @param {string} status '0'=確定 / '1'=保留
  * @param {string} officeId 受付の事業所ID('0'=すべて)
+ * @param {string=} orderType 注文区分のID('0'またはなし=すべて。SALES_CONFIG.ORDER_TYPES を参照)
  */
-function deliproSearch_(client, fromYmd, toYmd, status, officeId) {
+function deliproSearch_(client, fromYmd, toYmd, status, officeId, orderType) {
   const payload = {
     dayfield: 'oddelidate',
     datSt: fromYmd.replace(/-/g, '/'),
     datEd: toYmd.replace(/-/g, '/'),
     'odspid_s[]': '1',
     oddelistid_s: '0',
-    odtype_s: '0',
+    odtype_s: orderType || '0',
     odstid_s: officeId || '0',
     odconc_s: '',
     odstatus_s: status,

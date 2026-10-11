@@ -7,10 +7,199 @@
  * デリプロのID・パスワードはここではなく、スクリプトプロパティに登録します(docs/delipro-sales.md)。
  */
 const SALES_CONFIG = {
+  // 集計する注文区分。id は集配管理の検索条件「注文区分」の値
+  ORDER_TYPES: [
+    { id: '4', name: '大阪直販' },
+    { id: '5', name: '大阪CS' },
+    { id: '6', name: '大阪ごちクル' },
+    { id: '12', name: '大阪南海' },
+    { id: '1', name: '東京直販' },
+    { id: '2', name: '東京CS' },
+    { id: '3', name: '東京ごちクル' },
+    { id: '9', name: '東海直販' },
+    { id: '11', name: '東海CS' },
+    { id: '10', name: '東海ごちくる' },
+    { id: '15', name: '東海結膳' },
+    { id: '13', name: '東海ROK' },
+    { id: '14', name: '東海卸' },
+    { id: '7', name: '山口/福岡' },
+    { id: '8', name: '愛媛' },
+  ],
+  // 集計表の支払区分の並び。ここに無い支払区分が出たら右端に自動で足す
+  PAYMENT_ORDER: ['現金', 'クレジットカード', '請求書', 'Cqree代理請求', 'ごちくる代理請求', '未定'],
+
+  // 集計結果を書き込むスプレッドシート。初回実行時に自動で作り、IDをスクリプトプロパティ SALES_SHEET_ID に保存する
+  SHEET_NAME: 'デリプロ売上集計',
+
   // 調査用のダウンロードを保存するマイドライブのフォルダ名
   PROBE_FOLDER: 'delipro_probe',
   TIME_ZONE: 'Asia/Tokyo',
 };
+
+// ===== SalesParser.gs =====
+/**
+ * デリプロの「ダウンロード」CSVの解析と集計(純粋関数。Node.jsでもテストできる: tests/delipro-sales.test.js)。
+ */
+
+/**
+ * 1行目は「注文データ：,作成日時,…」、2行目が見出し。列は見出しの名前で探す。
+ * @return {{odid:string, payment:string, amount:number}[]}
+ */
+function parseDeliDownloadCsv_(text) {
+  const rows = parseCsv_(text);
+  const h = rows.findIndex(function (r) { return r.indexOf('注文番号') !== -1 && r.indexOf('合計金額') !== -1; });
+  if (h === -1) throw new Error('ダウンロードCSVの見出し(注文番号・合計金額)が見つかりません。デリプロの仕様変更の可能性があります');
+  const col = function (name) {
+    const i = rows[h].indexOf(name);
+    if (i === -1) throw new Error('ダウンロードCSVに「' + name + '」の列がありません');
+    return i;
+  };
+  const cId = col('注文番号'), cPay = col('支払区分'), cAmt = col('合計金額');
+  return rows.slice(h + 1).filter(function (r) { return r[cId]; }).map(function (r) {
+    return { odid: r[cId], payment: r[cPay] || '(空欄)', amount: Number(String(r[cAmt]).replace(/,/g, '')) || 0 };
+  });
+}
+
+/**
+ * @param typeOf 注文番号→注文区分名。無い注文は「区分なし」に入れる
+ * @return {{types:string[], payments:string[], cells:Object, rowTotal:Object, rowCount:Object, colTotal:Object, total:number, count:number}}
+ */
+function summarizeOrders_(orders, typeOf, typeOrder, paymentOrder) {
+  const NONE = '区分なし';
+  const cells = {}, rowTotal = {}, rowCount = {}, colTotal = {};
+  const payments = paymentOrder.slice();
+  let total = 0;
+  orders.forEach(function (o) {
+    const t = typeOf[o.odid] || NONE;
+    if (payments.indexOf(o.payment) === -1) payments.push(o.payment);
+    cells[t] = cells[t] || {};
+    cells[t][o.payment] = (cells[t][o.payment] || 0) + o.amount;
+    rowTotal[t] = (rowTotal[t] || 0) + o.amount;
+    rowCount[t] = (rowCount[t] || 0) + 1;
+    colTotal[o.payment] = (colTotal[o.payment] || 0) + o.amount;
+    total += o.amount;
+  });
+  const types = typeOrder.concat(rowCount[NONE] ? [NONE] : []);
+  return { types: types, payments: payments, cells: cells, rowTotal: rowTotal, rowCount: rowCount, colTotal: colTotal, total: total, count: orders.length };
+}
+
+/** 集計結果を表(2次元配列)にする。1行目が見出し、最終行が合計 */
+function summaryToTable_(s) {
+  const table = [['注文区分', '件数'].concat(s.payments, ['合計(税込)'])];
+  s.types.forEach(function (t) {
+    const c = s.cells[t] || {};
+    table.push([t, s.rowCount[t] || 0].concat(s.payments.map(function (p) { return c[p] || 0; }), [s.rowTotal[t] || 0]));
+  });
+  table.push(['合計', s.count].concat(s.payments.map(function (p) { return s.colTotal[p] || 0; }), [s.total]));
+  return table;
+}
+
+/** ダブルクォート・改行入りのセルに対応した最小限のCSV解析 */
+function parseCsv_(text) {
+  const s = String(text || '').replace(/^﻿/, '');
+  const rows = [];
+  let row = [], cell = '', q = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (q) {
+      if (ch === '"' && s[i + 1] === '"') { cell += '"'; i++; }
+      else if (ch === '"') q = false;
+      else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && s[i + 1] === '\n') i++;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += ch;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+if (typeof module !== 'undefined') module.exports = { parseDeliDownloadCsv_, summarizeOrders_, summaryToTable_, parseCsv_ };
+
+// ===== SalesSummary.gs =====
+/**
+ * デリプロの確定注文を「注文区分×支払区分」で集計し、スプレッドシートに書き込む。
+ * 金額はデリプロの「合計金額」(税込)。計上月は配達日の月。
+ */
+
+/** 今月1日〜今日の配達分を集計する(手動実行・毎朝の自動実行用) */
+function summarizeThisMonth() {
+  const today = Utilities.formatDate(new Date(), SALES_CONFIG.TIME_ZONE, 'yyyy-MM-dd');
+  summarizeDeliproSales_(today.slice(0, 8) + '01', today);
+}
+
+/** 前月1日〜末日の配達分を集計する(月初の確定用) */
+function summarizeLastMonth() {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const last = new Date(now.getFullYear(), now.getMonth(), 0);
+  const fmt = function (d) { return Utilities.formatDate(d, SALES_CONFIG.TIME_ZONE, 'yyyy-MM-dd'); };
+  summarizeDeliproSales_(fmt(first), fmt(last));
+}
+
+function summarizeDeliproSales_(fromYmd, toYmd) {
+  const cfg = SALES_CONFIG;
+  const client = deliproLogin_();
+
+  // 注文区分ごとに検索して、注文番号→区分名の対応を作る
+  const typeOf = {};
+  cfg.ORDER_TYPES.forEach(function (t) {
+    deliproSearch_(client, fromYmd, toYmd, '0', '0', t.id).forEach(function (o) { typeOf[o.odid] = t.name; });
+  });
+  // 区分を指定しない検索(全件)。区分の付け漏れを見つけるため、こちらを正とする
+  const ids = deliproSearch_(client, fromYmd, toYmd, '0', '0').map(function (o) { return o.odid; });
+
+  const orders = ids.length ? parseDeliDownloadCsv_(deliproDownloadCsv_(client, ids)) : [];
+  if (orders.length !== ids.length) {
+    throw new Error('ダウンロードの件数が合いません(検索' + ids.length + '件・ダウンロード' + orders.length + '件)');
+  }
+  const summary = summarizeOrders_(orders, typeOf, cfg.ORDER_TYPES.map(function (t) { return t.name; }), cfg.PAYMENT_ORDER);
+  writeSummarySheet_(fromYmd, toYmd, summary);
+  Logger.log(fromYmd + '〜' + toYmd + ': ' + summary.count + '件 ' + summary.total + '円');
+}
+
+/** 集配管理の「ダウンロード」(注文ごと1行のCSV)を文字列で取得する */
+function deliproDownloadCsv_(client, odids) {
+  const res = deliproRequest_(client, 'deli_download.php', { method: 'post', payload: { odids: odids.join(','), user: 'dp0100' } });
+  return res.getBlob().getDataAsString('Shift_JIS');
+}
+
+// ===== SalesSheet.gs =====
+/**
+ * 集計結果を専用のスプレッドシート(SALES_CONFIG.SHEET_NAME)に書き込む。月ごとに1シート(例: 2026-10)。
+ * PLのファイルには書き込まない(PL側からは数式で参照するか、数字を写す)。
+ */
+function writeSummarySheet_(fromYmd, toYmd, summary) {
+  const ss = openSalesSpreadsheet_();
+  const name = fromYmd.slice(0, 7);
+  const sh = ss.getSheetByName(name) || ss.insertSheet(name, 0);
+  sh.clear();
+  const table = summaryToTable_(summary);
+  const now = Utilities.formatDate(new Date(), SALES_CONFIG.TIME_ZONE, 'yyyy/MM/dd HH:mm');
+  sh.getRange(1, 1).setValue('配達日 ' + fromYmd + '〜' + toYmd + '・確定のみ・税込(デリプロの合計金額)・更新 ' + now);
+  sh.getRange(3, 1, table.length, table[0].length).setValues(table);
+  sh.getRange(3, 1, 1, table[0].length).setFontWeight('bold').setBackground('#eeeeee');
+  sh.getRange(3 + table.length - 1, 1, 1, table[0].length).setFontWeight('bold');
+  sh.getRange(4, 2, table.length - 1, table[0].length - 1).setNumberFormat('#,##0');
+  const none = summary.types.indexOf('区分なし');
+  if (none !== -1) {
+    sh.getRange(4 + none, 1, 1, table[0].length).setBackground('#fff2cc');
+    sh.getRange(3 + table.length + 1, 1).setValue('※「区分なし」はデリプロで注文区分が未入力の注文です。デリプロで区分を入れてから再実行してください');
+  }
+  sh.autoResizeColumns(1, table[0].length);
+}
+
+function openSalesSpreadsheet_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('SALES_SHEET_ID');
+  if (id) return SpreadsheetApp.openById(id);
+  const ss = SpreadsheetApp.create(SALES_CONFIG.SHEET_NAME);
+  props.setProperty('SALES_SHEET_ID', ss.getId());
+  Logger.log('集計用のスプレッドシートを作りました: ' + ss.getUrl());
+  return ss;
+}
 
 // ===== DeliListParser.gs =====
 /**
@@ -82,15 +271,16 @@ function deliproLogin_() {
  * 集配管理で 配達日 from〜to の注文を検索する。
  * @param {string} status '0'=確定 / '1'=保留
  * @param {string} officeId 受付の事業所ID('0'=すべて)
+ * @param {string=} orderType 注文区分のID('0'またはなし=すべて。SALES_CONFIG.ORDER_TYPES を参照)
  */
-function deliproSearch_(client, fromYmd, toYmd, status, officeId) {
+function deliproSearch_(client, fromYmd, toYmd, status, officeId, orderType) {
   const payload = {
     dayfield: 'oddelidate',
     datSt: fromYmd.replace(/-/g, '/'),
     datEd: toYmd.replace(/-/g, '/'),
     'odspid_s[]': '1',
     oddelistid_s: '0',
-    odtype_s: '0',
+    odtype_s: orderType || '0',
     odstid_s: officeId || '0',
     odconc_s: '',
     odstatus_s: status,
@@ -185,4 +375,30 @@ function probeDeliproPages() {
   deliproSearch_(client, today, today, '0', '0');
   folder.createFile('page_deli_result.html', client.lastHtml, MimeType.HTML);
   Logger.log('保存先: ' + folder.getUrl());
+}
+
+/**
+ * 調査用(1回だけ実行): 税率別の金額を出している「分析」画面の場所を調べるため、
+ * メインメニューと、その中の「分析」を含むリンク先の画面を「delipro_probe」フォルダに保存する。
+ */
+function probeDeliproAnalysis() {
+  const cfg = SALES_CONFIG;
+  const client = deliproLogin_();
+  const it = DriveApp.getFoldersByName(cfg.PROBE_FOLDER);
+  const folder = it.hasNext() ? it.next() : DriveApp.createFolder(cfg.PROBE_FOLDER);
+
+  const menu = deliproRequest_(client, 'index.php', { method: 'get' }).getContentText('UTF-8');
+  folder.createFile('page_menu.html', menu, MimeType.HTML);
+  const re = /<a[^>]*href="([^"#][^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
+  const seen = {};
+  let m, n = 0;
+  while ((m = re.exec(menu)) !== null) {
+    const href = m[1], text = m[2].replace(/<[^>]+>/g, '').trim();
+    if (text.indexOf('分析') === -1 || /^javascript:/.test(href) || seen[href]) continue;
+    seen[href] = true;
+    const html = deliproRequest_(client, href.replace(/&amp;/g, '&'), { method: 'get' }).getContentText('UTF-8');
+    folder.createFile('page_analysis_' + (++n) + '.html', html, MimeType.HTML);
+    Logger.log('分析の画面: ' + text + ' → ' + href);
+  }
+  Logger.log('保存先: ' + folder.getUrl() + ' / 分析の画面 ' + n + '件');
 }
