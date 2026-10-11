@@ -29,8 +29,11 @@ const KITCHEN_CONFIG = {
   // 南海は3日前に数量が確定する運用のため、保留が通常状態
   NO_PENDING_HIGHLIGHT_CLIENTS: ['南海電気鉄道'],
 
-  // 保留のまま配達日がこの日数以内に迫った案件を「確定の催促」としてメール冒頭に出す
-  PENDING_ALERT_DAYS: 3,
+  // 受注(人数・メニュー確定)の締切: 配達日の何日前か。プラン名の先頭の記号で判定する
+  // (C)=ケータリング 5日前 / (H)=オードブル 3日前 / どちらもない注文は DEFAULT
+  ORDER_DEADLINE_DAYS: { C: 5, H: 3, DEFAULT: 3 },
+  // 保留のまま、受注締切まであと何日以内(締切超過を含む)になったら「確定の催促」に出すか
+  PENDING_ALERT_MARGIN_DAYS: 2,
 
   // エラー通知とテスト送信の宛先
   ADMIN_EMAIL: 'yoshida@lit-house.jp',
@@ -674,8 +677,9 @@ function buildKitchenMail_(today, end, orders, ahead, title) {
   const large = orders.filter(function (o) { return o.isLarge; }).concat(ahead || []);
   const pending = orders.filter(isHighlightedPending_);
   // 保留のまま配達日が近い案件(確定の催促が必要)
-  const alertEnd = kAddDays_(today, cfg.PENDING_ALERT_DAYS);
-  const urgent = pending.filter(function (o) { return o.date <= alertEnd; });
+  const urgent = pending.filter(function (o) {
+    return kDiffDays_(today, orderDeadline_(o)) <= cfg.PENDING_ALERT_MARGIN_DAYS;
+  });
   const people = function (list) {
     return list.reduce(function (s, o) { return s + (o.headcount || 0); }, 0);
   };
@@ -693,8 +697,11 @@ function buildKitchenMail_(today, end, orders, ahead, title) {
     large.length + '件 / ' + people(large) + '名</p>');
 
   if (urgent.length) {
-    h.push('<h3 style="color:#b26a00;margin:16px 0 4px">確定の催促が必要(保留のまま' + cfg.PENDING_ALERT_DAYS + '日以内に配達)</h3>');
-    h.push(kitchenTable_(urgent, today, true));
+    h.push('<h3 style="color:#b26a00;margin:16px 0 4px">確定の催促が必要(保留のまま受注締切が' +
+      cfg.PENDING_ALERT_MARGIN_DAYS + '日以内・超過)</h3>');
+    h.push('<p style="margin:0 0 4px;font-size:12px;color:#555">受注締切: ケータリング(C)は' + cfg.ORDER_DEADLINE_DAYS.C +
+      '日前、オードブル(H)は' + cfg.ORDER_DEADLINE_DAYS.H + '日前</p>');
+    h.push(kitchenTable_(urgent, today, true, true));
   }
 
   if (large.length) {
@@ -720,11 +727,12 @@ function buildKitchenMail_(today, end, orders, ahead, title) {
   return { subject: subject, html: h.join(''), text: text };
 }
 
-function kitchenTable_(orders, today, showDaysLeft) {
+function kitchenTable_(orders, today, showDaysLeft, showDeadline) {
   const th = 'style="border:1px solid #ccc;padding:4px 6px;background:#f2f2f2;text-align:left;white-space:nowrap"';
   const td = 'style="border:1px solid #ccc;padding:4px 6px;vertical-align:top"';
   const heads = ['日付', '時間', 'No.', '状態', '人数', 'お客様', 'プラン', 'お届け先'];
   if (showDaysLeft) heads.splice(1, 0, 'あと');
+  if (showDeadline) heads.splice(1, 0, '受注締切');
   const rows = orders.map(function (o) {
     const cells = [
       kEsc_(kFormatJa_(o.date)),
@@ -737,6 +745,7 @@ function kitchenTable_(orders, today, showDaysLeft) {
       kEsc_(o.place),
     ];
     if (showDaysLeft) cells.splice(1, 0, kEsc_(kDiffDays_(today, o.date) + '日'));
+    if (showDeadline) cells.splice(1, 0, deadlineCell_(o, today));
     const bg = o.isLarge ? '#fde7ea' : isHighlightedPending_(o) ? '#fff6d6' : '#fff';
     return '<tr style="background:' + bg + '">' +
       cells.map(function (v) { return '<td ' + td + '>' + v + '</td>'; }).join('') + '</tr>';
@@ -751,6 +760,26 @@ function isHighlightedPending_(o) {
   return !(KITCHEN_CONFIG.NO_PENDING_HIGHLIGHT_CLIENTS || []).some(function (name) {
     return String(o.client || '').indexOf(name) !== -1;
   });
+}
+
+/**
+ * 受注締切日('YYYY-MM-DD')。プランに(C)ケータリングがあれば5日前、(H)オードブルなら3日前。
+ * 両方ある注文は早いほう(ケータリング)に合わせる
+ */
+function orderDeadline_(o) {
+  const days = KITCHEN_CONFIG.ORDER_DEADLINE_DAYS;
+  const names = (o.plans || []).map(function (p) { return p.name; }).join(' ') + ' ' + (o.details || '');
+  let n = days.DEFAULT;
+  if (/[(（]C[)）]/.test(names)) n = Math.max(n, days.C);
+  else if (/[(（]H[)）]/.test(names)) n = days.H;
+  return kAddDays_(o.date, -n);
+}
+
+function deadlineCell_(o, today) {
+  const d = orderDeadline_(o);
+  const left = kDiffDays_(today, d);
+  const note = left < 0 ? '<b style="color:#b00020">超過</b>' : left === 0 ? '<b style="color:#b00020">本日</b>' : 'あと' + left + '日';
+  return kEsc_(kFormatJa_(d)) + ' ' + note;
 }
 
 /** プラン欄の要約。プラン欄がない注文(南海など)は明細をそのまま出す */

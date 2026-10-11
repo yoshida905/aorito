@@ -25,8 +25,11 @@ const KITCHEN_CONFIG = {
   // 南海は3日前に数量が確定する運用のため、保留が通常状態
   NO_PENDING_HIGHLIGHT_CLIENTS: ['南海電気鉄道'],
 
-  // 保留のまま配達日がこの日数以内に迫った案件を「確定の催促」としてメール冒頭に出す
-  PENDING_ALERT_DAYS: 3,
+  // 受注(人数・メニュー確定)の締切: 配達日の何日前か。プラン名の先頭の記号で判定する
+  // (C)=ケータリング 5日前 / (H)=オードブル 3日前 / どちらもない注文は DEFAULT
+  ORDER_DEADLINE_DAYS: { C: 5, H: 3, DEFAULT: 3 },
+  // 保留のまま、受注締切まであと何日以内(締切超過を含む)になったら「確定の催促」に出すか
+  PENDING_ALERT_MARGIN_DAYS: 2,
 
   // エラー通知とテスト送信の宛先
   ADMIN_EMAIL: 'yoshida@lit-house.jp',

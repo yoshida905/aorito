@@ -105,7 +105,7 @@ test('プラン欄が諸経費だけなら明細も表示する', () => {
 
 
 test('南海の保留は色分けせず、保留件数にも数えない', () => {
-  const mk = (n, client) => ({ number: n, date: '2026-10-15', time: '09:30', client, place: '', plans: [], details: '', headcount: 10, status: '保留', isLarge: false });
+  const mk = (n, client) => ({ number: n, date: '2026-10-18', time: '09:30', client, place: '', plans: [], details: '', headcount: 10, status: '保留', isLarge: false });
   const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', [mk('1', '南海電気鉄道株式会社 株式会社サンプル'), mk('2', '株式会社サンプル')], [], '大阪キッチン指示書');
   assert.ok(mail.subject.includes('(保留1件)'));
   assert.strictEqual((mail.html.match(/>保留<\/b>/g) || []).length, 1);
@@ -126,12 +126,21 @@ test('PDFから直接(OCRなしで)文字を取り出して注文を読める', 
 });
 
 
-test('保留のまま3日以内に配達の案件を催促リストに出す(南海は除く)', () => {
-  const mk = (n, client, date) => ({ number: n, date, time: '10:00', client, place: '', plans: [], details: '', headcount: 20, status: '保留', isLarge: false });
-  const list = [mk('1', '株式会社サンプル', '2026-10-13'), mk('2', '南海電気鉄道株式会社', '2026-10-12'), mk('3', '株式会社サンプル', '2026-10-16')];
-  const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', list, [], '東京キッチン指示書');
-  assert.strictEqual(mail.subject, '【東京キッチン指示書】10/11(日)〜10/18(日) 3件(保留2件)・大型0件・要催促1件');
-  assert.ok(mail.html.includes('確定の催促が必要'));
+test('受注締切: ケータリング(C)は5日前、オードブル(H)は3日前', () => {
+  const c = { date: '2026-10-20', plans: [{ name: '(C)特別プラン', qty: 50 }], details: '' };
+  const h = { date: '2026-10-20', plans: [{ name: '(H)【全8品】アヤカミバコ WAKABA', qty: 20 }], details: '' };
+  const none = { date: '2026-10-20', plans: [], details: 'GRAN天空3号 ランチ 10' };
+  assert.strictEqual(ctx.orderDeadline_(c), '2026-10-15');
+  assert.strictEqual(ctx.orderDeadline_(h), '2026-10-17');
+  assert.strictEqual(ctx.orderDeadline_(none), '2026-10-17');
+});
+
+test('保留の催促は受注締切基準(ケータリングは早めに出る)', () => {
+  const mk = (n, plan, date) => ({ number: n, date, time: '10:00', client: '株式会社サンプル', place: '', plans: [{ name: plan, qty: 20 }], details: '', headcount: 20, status: '保留', isLarge: false });
+  // 今日10/11: ケータリング10/17配達→締切10/12(あと1日)=催促 / オードブル10/17配達→締切10/14(あと3日)=まだ
+  const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', [mk('1', '(C)特別プラン', '2026-10-17'), mk('2', '(H)特別プラン', '2026-10-17')], [], '大阪キッチン指示書');
+  assert.ok(mail.subject.endsWith('・要催促1件'));
+  assert.ok(mail.html.includes('10/12(月) あと1日'));
 });
 
 console.log(passed + ' tests passed');
