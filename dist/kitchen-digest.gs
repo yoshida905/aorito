@@ -578,9 +578,33 @@ function deliproRequest_(client, path, opts) {
 function sendKitchenDigest() {
   const props = PropertiesService.getScriptProperties();
   KITCHEN_CONFIG.OFFICES.forEach(function (office) {
-    const to = props.getProperty(office.mailToProperty);
-    if (to) runKitchenDigest_(office, to);
+    const raw = props.getProperty(office.mailToProperty);
+    if (!raw) return;
+    const r = parseRecipients_(raw);
+    if (r.invalid.length) {
+      // 宛先の書き間違いがあっても、正しい宛先には送る。間違いは管理者に知らせる
+      MailApp.sendEmail(KITCHEN_CONFIG.ADMIN_EMAIL, '【要確認】' + office.title + 'の送信先に誤りがあります',
+        'スクリプトプロパティ ' + office.mailToProperty + ' に、メールアドレスとして読めないものがありました。\n' +
+        '読めなかったもの: ' + r.invalid.join(' / ') + '\n\n' +
+        'これらを除いた ' + r.valid.length + '件の宛先には送信しています。');
+    }
+    if (r.valid.length) runKitchenDigest_(office, r.valid.join(','));
   });
+}
+
+/**
+ * スクリプトプロパティの宛先を分解する。区切りは半角・全角のカンマ、読点、セミコロン、空白、改行のどれでもよい。
+ * @return {{valid: string[], invalid: string[]}}
+ */
+function parseRecipients_(raw) {
+  const valid = [];
+  const invalid = [];
+  String(raw || '').split(/[,，、;；\s]+/).forEach(function (part) {
+    const addr = part.trim();
+    if (!addr) return;
+    (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(addr) ? valid : invalid).push(addr);
+  });
+  return { valid: valid, invalid: invalid };
 }
 
 /** 動作確認用: 送信先が登録されている事業所の分を、管理者宛てにだけ送る */

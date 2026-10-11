@@ -143,4 +143,11 @@ test('保留の催促は受注締切基準(ケータリングは早めに出る)
   assert.ok(mail.html.includes('10/12(月) あと1日'));
 });
 
+
+test('宛先は全角カンマ・読点・空白区切りでも読め、誤りは分けて返す', () => {
+  const r = ctx.parseRecipients_('a@lit-house.jp，b@lit-house.jp、 c@lit-house.jp\ne.jp, d@lit-house.jp,,');
+  assert.strictEqual(r.valid.join(','), 'a@lit-house.jp,b@lit-house.jp,c@lit-house.jp,d@lit-house.jp');
+  assert.strictEqual(r.invalid.join(','), 'e.jp');
+});
+
 console.log(passed + ' tests passed');
