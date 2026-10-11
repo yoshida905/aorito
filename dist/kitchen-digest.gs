@@ -72,7 +72,8 @@ function buildKitchenOrder_(m, body, todayYmd) {
   };
 
   // 先頭の「1/1」(ページ番号)を外し、「【プラン × 数量】」の手前までを宛名・住所とみなす
-  const text = body.replace(/^\d+\/\d+\s*/, '');
+  // ページ番号「1/1」は読み取り方によって先頭以外にも出るため、どこにあっても外す
+  const text = body.replace(/(^|\s)\d+\/\d+(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
   const firstPlan = text.indexOf('【');
   const header = firstPlan === -1 ? text : text.slice(0, firstPlan);
 
@@ -128,7 +129,8 @@ function estimateKitchenHeadcount_(plans, details) {
   let sm;
   while ((sm = servingRe.exec(text)) !== null) take(Number(sm[1]) * Number(sm[2]));
 
-  const numRe = /(?:^|\s)(\d{1,4})(?=\s|$)/g;
+  // 「ランチ7」のように商品名と数量がくっついて読み取られる場合もあるため、空白の直前の数字を数量とみなす
+  const numRe = /(?:^|[^\d.,\/×x])(\d{1,4})(?=\s|$)/g;
   let nm;
   while ((nm = numRe.exec(text)) !== null) take(Number(nm[1]));
   return max;
@@ -484,7 +486,10 @@ function kitchenTable_(orders, today, showDaysLeft) {
 /** プラン欄の要約。プラン欄がない注文(南海など)は明細をそのまま出す */
 function planText_(o) {
   if (!o.plans.length) return o.details;
-  return o.plans.map(function (p) { return p.name + '×' + p.qty; }).join(' / ');
+  const text = o.plans.map(function (p) { return p.name + '×' + p.qty; }).join(' / ');
+  // プラン欄が諸経費などだけの注文(料理は明細側にある)は、明細も並べる
+  const onlyExtras = o.plans.every(function (p) { return /^\(雑\)|（雑）|諸経費/.test(p.name); });
+  return onlyExtras && o.details ? text + ' / ' + o.details : text;
 }
 
 function kAddDays_(ymd, days) {

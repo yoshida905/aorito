@@ -90,4 +90,17 @@ test('複数プランは料理明細の数量を優先、大皿は人前×数量
   assert.strictEqual(ctx.estimateKitchenHeadcount_([], '1皿6名様分（500円） 105 40cm×60cmケーキ 1'), 105);
 });
 
+
+test('OCRで「1/1」が途中に出たり数量がくっついても読める', () => {
+  const t = '注文番号 No.4068 10/12(月) 14:30 お届け サンプル電鉄株式会社 様 1/1 サンプル1号 モーニング7 サンプル2号 ランチ7 ロック氷1kg4';
+  const o = ctx.parseKitchenText_(t, '2026-10-11')[0];
+  assert.ok(!o.details.includes('1/1'));
+  assert.strictEqual(o.headcount, 7);
+  assert.strictEqual(ctx.estimateKitchenHeadcount_([], '1.5L 64貫 1皿6名様分 2'), 2);
+});
+
+test('プラン欄が諸経費だけなら明細も表示する', () => {
+  assert.strictEqual(ctx.planText_({ plans: [{ name: '(雑)諸経費', qty: 1 }], details: '(C)特別プラン 400' }), '(雑)諸経費×1 / (C)特別プラン 400');
+});
+
 console.log(passed + ' tests passed');

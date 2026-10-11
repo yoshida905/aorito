@@ -203,7 +203,10 @@ function kitchenTable_(orders, today, showDaysLeft) {
 /** プラン欄の要約。プラン欄がない注文(南海など)は明細をそのまま出す */
 function planText_(o) {
   if (!o.plans.length) return o.details;
-  return o.plans.map(function (p) { return p.name + '×' + p.qty; }).join(' / ');
+  const text = o.plans.map(function (p) { return p.name + '×' + p.qty; }).join(' / ');
+  // プラン欄が諸経費などだけの注文(料理は明細側にある)は、明細も並べる
+  const onlyExtras = o.plans.every(function (p) { return /^\(雑\)|（雑）|諸経費/.test(p.name); });
+  return onlyExtras && o.details ? text + ' / ' + o.details : text;
 }
 
 function kAddDays_(ymd, days) {

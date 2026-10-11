@@ -38,7 +38,8 @@ function buildKitchenOrder_(m, body, todayYmd) {
   };
 
   // 先頭の「1/1」(ページ番号)を外し、「【プラン × 数量】」の手前までを宛名・住所とみなす
-  const text = body.replace(/^\d+\/\d+\s*/, '');
+  // ページ番号「1/1」は読み取り方によって先頭以外にも出るため、どこにあっても外す
+  const text = body.replace(/(^|\s)\d+\/\d+(?=\s|$)/g, ' ').replace(/\s+/g, ' ').trim();
   const firstPlan = text.indexOf('【');
   const header = firstPlan === -1 ? text : text.slice(0, firstPlan);
 
@@ -94,7 +95,8 @@ function estimateKitchenHeadcount_(plans, details) {
   let sm;
   while ((sm = servingRe.exec(text)) !== null) take(Number(sm[1]) * Number(sm[2]));
 
-  const numRe = /(?:^|\s)(\d{1,4})(?=\s|$)/g;
+  // 「ランチ7」のように商品名と数量がくっついて読み取られる場合もあるため、空白の直前の数字を数量とみなす
+  const numRe = /(?:^|[^\d.,\/×x])(\d{1,4})(?=\s|$)/g;
   let nm;
   while ((nm = numRe.exec(text)) !== null) take(Number(nm[1]));
   return max;
