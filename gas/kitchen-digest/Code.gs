@@ -98,14 +98,15 @@ function runKitchenDigest_(mailTo) {
 
 /**
  * PDFをGoogleドキュメントに一時変換してテキストを取り出す。
- * 要: Apps Scriptの「サービス」でDrive API(v3)を追加
+ * 要: Apps Scriptの「サービス」でDrive APIを追加(v2・v3のどちらでも動く)
  */
 function extractKitchenPdfText_(blob) {
-  const tmp = Drive.Files.create(
-    { name: 'tmp_kitchen_' + blob.getName(), mimeType: MimeType.GOOGLE_DOCS },
-    blob,
-    { ocrLanguage: 'ja', fields: 'id' }
-  );
+  const isV3 = typeof Drive.Files.create === 'function';
+  const tmp = isV3
+    ? Drive.Files.create({ name: 'tmp_kitchen_' + blob.getName(), mimeType: MimeType.GOOGLE_DOCS }, blob,
+      { ocrLanguage: 'ja', fields: 'id' })
+    : Drive.Files.insert({ title: 'tmp_kitchen_' + blob.getName(), mimeType: MimeType.GOOGLE_DOCS }, blob,
+      { ocr: true, ocrLanguage: 'ja' });
   try {
     return DocumentApp.openById(tmp.id).getBody().getText();
   } finally {

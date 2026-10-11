@@ -32,7 +32,7 @@ PDFに人数欄がないため、次の最大値を人数とみなします。
 
 1. https://script.google.com で新しいプロジェクトを作成し、`gas/kitchen-digest/` の
    `Config.gs`・`KitchenParser.gs`・`DeliListParser.gs`・`DeliproClient.gs`・`Code.gs`・`appsscript.json` を貼り付け
-2. 「サービス」で Drive API(v3)を追加(`appsscript.json` を貼っていれば追加済み)
+2. 「サービス」で Drive API を追加(v2・v3どちらでも可)
 3. 「プロジェクトの設定」→「スクリプト プロパティ」に次を登録(コードやGitHubには書かない)
    - `DELIPRO_CONTRACT_ID` / `DELIPRO_STAFF_ID` / `DELIPRO_PASSWORD`
 4. `Config.gs` の `OFFICE_ID` を確認('9'=大阪、'0'=全事業所)
