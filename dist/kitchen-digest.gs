@@ -21,6 +21,9 @@ const KITCHEN_CONFIG = {
   // 南海は3日前に数量が確定する運用のため、保留が通常状態
   NO_PENDING_HIGHLIGHT_CLIENTS: ['南海電気鉄道'],
 
+  // メール件名の先頭【】に入る名前
+  MAIL_TITLE: '大阪キッチン指示書',
+
   // 送信先はコードに書かず、スクリプトプロパティ MAIL_TO にカンマ区切りで登録する
   // (GitHubが公開設定のため、社員のメールアドレスを載せない)。未登録なら ADMIN_EMAIL にだけ送る
   // エラー通知とテスト送信の宛先
@@ -429,7 +432,7 @@ function buildKitchenMail_(today, end, orders, ahead) {
     return list.reduce(function (s, o) { return s + (o.headcount || 0); }, 0);
   };
 
-  const subject = '【キッチン指示書】' + kFormatJa_(today) + '〜' + kFormatJa_(end) +
+  const subject = '【' + cfg.MAIL_TITLE + '】' + kFormatJa_(today) + '〜' + kFormatJa_(end) +
     ' ' + orders.length + '件(保留' + pending.length + '件)・大型' + large.length + '件';
 
   const h = [];

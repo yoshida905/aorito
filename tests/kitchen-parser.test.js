@@ -69,7 +69,7 @@ test('メール本文を組み立てられる', () => {
   const list = orders.filter((o) => o.date <= '2026-10-18');
   list.forEach((o) => { o.isLarge = o.headcount >= 50; o.status = o.number === '4095' ? '保留' : '確定'; });
   const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', list, []);
-  assert.strictEqual(mail.subject, '【キッチン指示書】10/11(日)〜10/18(日) 6件(保留1件)・大型3件');
+  assert.strictEqual(mail.subject, '【大阪キッチン指示書】10/11(日)〜10/18(日) 6件(保留1件)・大型3件');
   assert.ok(mail.html.includes('大型案件'));
   assert.ok(mail.html.includes('注文なし'));
   assert.ok(mail.html.includes('(C)特別プラン×138'));

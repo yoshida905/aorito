@@ -142,7 +142,7 @@ function buildKitchenMail_(today, end, orders, ahead) {
     return list.reduce(function (s, o) { return s + (o.headcount || 0); }, 0);
   };
 
-  const subject = '【キッチン指示書】' + kFormatJa_(today) + '〜' + kFormatJa_(end) +
+  const subject = '【' + cfg.MAIL_TITLE + '】' + kFormatJa_(today) + '〜' + kFormatJa_(end) +
     ' ' + orders.length + '件(保留' + pending.length + '件)・大型' + large.length + '件';
 
   const h = [];
