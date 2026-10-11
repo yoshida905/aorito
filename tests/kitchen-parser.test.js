@@ -103,4 +103,13 @@ test('プラン欄が諸経費だけなら明細も表示する', () => {
   assert.strictEqual(ctx.planText_({ plans: [{ name: '(雑)諸経費', qty: 1 }], details: '(C)特別プラン 400' }), '(雑)諸経費×1 / (C)特別プラン 400');
 });
 
+
+test('南海の保留は色分けせず、保留件数にも数えない', () => {
+  const mk = (n, client) => ({ number: n, date: '2026-10-15', time: '09:30', client, place: '', plans: [], details: '', headcount: 10, status: '保留', isLarge: false });
+  const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', [mk('1', '南海電気鉄道株式会社 株式会社サンプル'), mk('2', '株式会社サンプル')], []);
+  assert.ok(mail.subject.includes('(保留1件)'));
+  assert.strictEqual((mail.html.match(/>保留<\/b>/g) || []).length, 1);
+  assert.strictEqual((mail.html.match(/#fff6d6/g) || []).length, 1);
+});
+
 console.log(passed + ' tests passed');

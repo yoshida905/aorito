@@ -13,8 +13,12 @@ const KITCHEN_CONFIG = {
   // 大型案件の判定: この人数以上
   LARGE_HEADCOUNT: 50,
 
-  // 送信先(カンマ区切りで複数可)
-  MAIL_TO: 'buffet@lit-house.jp',
+  // 保留でも色分けしない(保留件数にも数えない)お客様。名前の一部で判定
+  // 南海は3日前に数量が確定する運用のため、保留が通常状態
+  NO_PENDING_HIGHLIGHT_CLIENTS: ['南海電気鉄道'],
+
+  // 送信先はコードに書かず、スクリプトプロパティ MAIL_TO にカンマ区切りで登録する
+  // (GitHubが公開設定のため、社員のメールアドレスを載せない)。未登録なら ADMIN_EMAIL にだけ送る
   // エラー通知とテスト送信の宛先
   ADMIN_EMAIL: 'yoshida@lit-house.jp',
   // 毎日の送信時刻(時)。GASの仕様上、この時刻から1時間以内のどこかで実行されます

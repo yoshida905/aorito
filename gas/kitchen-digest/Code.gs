@@ -9,7 +9,8 @@
 
 /** 毎朝トリガーで実行されるメイン処理 */
 function sendKitchenDigest() {
-  runKitchenDigest_(KITCHEN_CONFIG.MAIL_TO);
+  const to = PropertiesService.getScriptProperties().getProperty('MAIL_TO');
+  runKitchenDigest_(to || KITCHEN_CONFIG.ADMIN_EMAIL);
 }
 
 /** 動作確認用: 管理者宛てにだけ送る */
@@ -136,7 +137,7 @@ function extractKitchenPdfText_(blob) {
 function buildKitchenMail_(today, end, orders, ahead) {
   const cfg = KITCHEN_CONFIG;
   const large = orders.filter(function (o) { return o.isLarge; }).concat(ahead || []);
-  const pending = orders.filter(function (o) { return o.status === '保留'; });
+  const pending = orders.filter(isHighlightedPending_);
   const people = function (list) {
     return list.reduce(function (s, o) { return s + (o.headcount || 0); }, 0);
   };
@@ -148,7 +149,7 @@ function buildKitchenMail_(today, end, orders, ahead) {
   h.push('<div style="font-family:sans-serif;font-size:14px;color:#222">');
   h.push('<p>' + kEsc_(kFormatJa_(today)) + '〜' + kEsc_(kFormatJa_(end)) + ' のデリプロ注文一覧です(確定・保留)。' +
     'キッチン指示書(注文別:メイン)のPDFを添付しています。</p>');
-  h.push('<p>合計 ' + orders.length + '件 / ' + people(orders) + '名、うち保留 ' + pending.length + '件 / ' + people(pending) + '名</p>');
+  h.push('<p>合計 ' + orders.length + '件 / ' + people(orders) + '名、うち保留 ' + pending.length + '件 / ' + people(pending) + '名(南海などの定例分を除く)</p>');
   h.push('<p>大型(' + cfg.LARGE_HEADCOUNT + '名以上・' + cfg.LARGE_LOOKAHEAD_DAYS + '日先まで) ' +
     large.length + '件 / ' + people(large) + '名</p>');
 
@@ -185,19 +186,27 @@ function kitchenTable_(orders, today, showDaysLeft) {
       kEsc_(kFormatJa_(o.date)),
       kEsc_(o.time || '-'),
       kEsc_(o.number),
-      o.status === '保留' ? '<b style="color:#b26a00">保留</b>' : '確定',
+      isHighlightedPending_(o) ? '<b style="color:#b26a00">保留</b>' : kEsc_(o.status),
       (o.isLarge ? '<b style="color:#b00020">' : '') + kEsc_(o.headcount ? o.headcount + '名' : '-') + (o.isLarge ? '</b>' : ''),
       kEsc_(o.client),
       kEsc_(planText_(o)),
       kEsc_(o.place),
     ];
     if (showDaysLeft) cells.splice(1, 0, kEsc_(kDiffDays_(today, o.date) + '日'));
-    const bg = o.isLarge ? '#fde7ea' : o.status === '保留' ? '#fff6d6' : '#fff';
+    const bg = o.isLarge ? '#fde7ea' : isHighlightedPending_(o) ? '#fff6d6' : '#fff';
     return '<tr style="background:' + bg + '">' +
       cells.map(function (v) { return '<td ' + td + '>' + v + '</td>'; }).join('') + '</tr>';
   });
   return '<table style="border-collapse:collapse;font-size:13px"><tr>' +
     heads.map(function (x) { return '<th ' + th + '>' + x + '</th>'; }).join('') + '</tr>' + rows.join('') + '</table>';
+}
+
+/** 色分けして目立たせる保留か(南海など、保留が通常状態のお客様は除く) */
+function isHighlightedPending_(o) {
+  if (o.status !== '保留') return false;
+  return !(KITCHEN_CONFIG.NO_PENDING_HIGHLIGHT_CLIENTS || []).some(function (name) {
+    return String(o.client || '').indexOf(name) !== -1;
+  });
 }
 
 /** プラン欄の要約。プラン欄がない注文(南海など)は明細をそのまま出す */

@@ -2,7 +2,7 @@
 
 毎朝7時台にGASがデリプロへ自動ログインし、今日から7日先までの注文(確定・保留)を
 日別一覧と大型案件(50名以上・21日先まで)一覧に整理して、キッチン指示書(注文別:メイン)PDFを添付して
-`buffet@lit-house.jp` へ送ります。手作業はありません。
+スクリプトプロパティ `MAIL_TO` の宛先へ送ります。手作業はありません。
 
 ## 仕組み
 
@@ -35,6 +35,7 @@ PDFに人数欄がないため、次の最大値を人数とみなします。
 2. 「サービス」で Drive API を追加(v2・v3どちらでも可)
 3. 「プロジェクトの設定」→「スクリプト プロパティ」に次を登録(コードやGitHubには書かない)
    - `DELIPRO_CONTRACT_ID` / `DELIPRO_STAFF_ID` / `DELIPRO_PASSWORD`
+   - `MAIL_TO`(送信先。カンマ区切り。未登録なら `ADMIN_EMAIL` にだけ送る)
 4. `Config.gs` の `OFFICE_ID` を確認('9'=大阪、'0'=全事業所)
 5. `testKitchenDigestToAdmin` を実行し、権限を承認して `ADMIN_EMAIL` 宛ての内容を確認
 6. `setupKitchenTrigger` を1回だけ実行
