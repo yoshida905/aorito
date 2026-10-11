@@ -4,7 +4,7 @@
 
 /**
  * 1行目は「注文データ：,作成日時,…」、2行目が見出し。列は見出しの名前で探す。
- * @return {{odid:string, payment:string, amount:number}[]}
+ * @return {{odid:string, company:string, payment:string, amount:number}[]}
  */
 function parseDeliDownloadCsv_(text) {
   const rows = parseCsv_(text);
@@ -16,8 +16,9 @@ function parseDeliDownloadCsv_(text) {
     return i;
   };
   const cId = col('注文番号'), cPay = col('支払区分'), cAmt = col('合計金額');
+  const cName = rows[h].indexOf('会社名');
   return rows.slice(h + 1).filter(function (r) { return r[cId]; }).map(function (r) {
-    return { odid: r[cId], payment: r[cPay] || '(空欄)', amount: Number(String(r[cAmt]).replace(/,/g, '')) || 0 };
+    return { odid: r[cId], company: cName === -1 ? '' : r[cName], payment: r[cPay] || '(空欄)', amount: Number(String(r[cAmt]).replace(/,/g, '')) || 0 };
   });
 }
 

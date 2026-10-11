@@ -18,6 +18,54 @@ function summarizeLastMonth() {
   summarizeDeliproSales_(fmt(first), fmt(last));
 }
 
+/**
+ * 毎朝の自動実行(setupSalesTrigger で登録)。今月分を更新し、月初の数日は前月分も更新して締めの確認をする。
+ * 次のどれかがあれば、通知先にメールを送る(何もなければ送らない)
+ * - 前月分に保留の注文が残っている(月初 CLOSE_CHECK_DAYS 日間のみ)
+ * - 注文区分が未設定の注文がある / 支払区分別の合計と売上分析の合計が合わない
+ */
+function dailySalesJob() {
+  const cfg = SALES_CONFIG;
+  try {
+    const now = new Date();
+    const fmt = function (d) { return Utilities.formatDate(d, cfg.TIME_ZONE, 'yyyy-MM-dd'); };
+    const today = fmt(now);
+    const issues = [];
+    if (Number(today.slice(8, 10)) <= cfg.CLOSE_CHECK_DAYS) {
+      const from = fmt(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+      const r = summarizeDeliproSales_(from, fmt(new Date(now.getFullYear(), now.getMonth(), 0)));
+      if (r.pendingOrders.length) {
+        issues.push('【' + from.slice(0, 7) + '・締め前の確認】保留のままの注文が' + r.pendingOrders.length + '件あります。確定か取消にしてください');
+        r.pendingOrders.forEach(function (o) { issues.push('  No.' + o.odid + ' ' + o.company + ' ' + o.amount.toLocaleString() + '円'); });
+      }
+      issues.push.apply(issues, r.problems.map(function (m) { return '【' + from.slice(0, 7) + '】' + m; }));
+    }
+    const r = summarizeDeliproSales_(today.slice(0, 8) + '01', today);
+    issues.push.apply(issues, r.problems.map(function (m) { return '【' + today.slice(0, 7) + '】' + m; }));
+    if (issues.length) {
+      MailApp.sendEmail(salesNotifyTo_(), '【デリプロ売上集計】確認が必要な項目があります',
+        issues.join('\n') + '\n\n集計シート: ' + openSalesSpreadsheet_().getUrl());
+    }
+  } catch (e) {
+    MailApp.sendEmail(salesNotifyTo_(), '【デリプロ売上集計】エラー', String(e && e.stack || e));
+    throw e;
+  }
+}
+
+/** 毎朝の自動実行を登録する(1回だけ実行。再実行しても重複しない) */
+function setupSalesTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'dailySalesJob') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('dailySalesJob').timeBased().everyDays(1).atHour(SALES_CONFIG.TRIGGER_HOUR).inTimezone(SALES_CONFIG.TIME_ZONE).create();
+  Logger.log('毎朝' + SALES_CONFIG.TRIGGER_HOUR + '時台に dailySalesJob を実行するよう登録しました');
+}
+
+/** 通知先: スクリプトプロパティ NOTIFY_TO(カンマ区切り)。未登録ならこのスクリプトを実行しているアカウント */
+function salesNotifyTo_() {
+  return PropertiesService.getScriptProperties().getProperty('NOTIFY_TO') || Session.getEffectiveUser().getEmail();
+}
+
 function summarizeDeliproSales_(fromYmd, toYmd) {
   const cfg = SALES_CONFIG;
   const client = deliproLogin_();
@@ -39,6 +87,14 @@ function summarizeDeliproSales_(fromYmd, toYmd) {
   ];
   writeSummarySheet_(fromYmd, toYmd, blocks);
   blocks.forEach(function (b) { Logger.log(b.title + ': ' + b.summary.count + '件 ' + b.summary.total + '円'); });
+
+  // 確認が必要な点(区分なし・照合の差)。確定＋保留の表で判定する
+  const problems = [];
+  summaryToTable_(blocks[0].summary).slice(1).forEach(function (r) {
+    if (r[0] === '区分なし') problems.push('注文区分が未設定の注文があります。デリプロで区分を入れてください');
+    else if (/^差/.test(String(r[r.length - 1])) && r[0] !== '合計') problems.push(r[0] + ': 支払区分別の合計と売上分析の合計が合いません(' + r[r.length - 1] + '円)');
+  });
+  return { blocks: blocks, problems: problems, pendingOrders: pending.orders };
 }
 
 /**

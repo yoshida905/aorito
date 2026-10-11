@@ -14,6 +14,7 @@ const csv = [
 ].join('\r\n');
 
 const orders = parseDeliDownloadCsv_(csv);
+assert.strictEqual(orders[0].company, 'テスト商事');
 assert.deepStrictEqual(orders.map(o => [o.odid, o.payment, o.amount]), [
   ['101', '請求書', 120000], ['102', 'クレジットカード', 30000], ['103', 'Cqree代理請求', 50000], ['104', '請求書', 8000],
 ]);

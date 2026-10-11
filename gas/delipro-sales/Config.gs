@@ -27,6 +27,11 @@ const SALES_CONFIG = {
   // 集計結果を書き込むスプレッドシート。初回実行時に自動で作り、IDをスクリプトプロパティ SALES_SHEET_ID に保存する
   SHEET_NAME: 'デリプロ売上集計',
 
+  // 毎朝の自動実行の時刻(時)。GASの仕様上、この時刻から1時間以内のどこかで実行される
+  TRIGGER_HOUR: 6,
+  // 月初の何日間、前月分も更新して「保留が残っていないか」を確認するか
+  CLOSE_CHECK_DAYS: 5,
+
   // 調査用のダウンロードを保存するマイドライブのフォルダ名
   PROBE_FOLDER: 'delipro_probe',
   TIME_ZONE: 'Asia/Tokyo',
