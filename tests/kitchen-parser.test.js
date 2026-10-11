@@ -162,4 +162,13 @@ test('卸の注文は人数に数えず、大型にもしない', () => {
   assert.ok(mail.text.includes(' 卸 '));
 });
 
+
+test('南海の除外注記は該当があるときだけ出る', () => {
+  const mk = (n, client) => ({ number: n, date: '2026-10-18', time: '09:30', client, place: '', plans: [], details: '', headcount: 10, status: '保留', isLarge: false });
+  const osaka = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', [mk('1', '南海電気鉄道株式会社'), mk('2', '株式会社サンプル')], [], '大阪キッチン指示書');
+  const tokyo = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', [mk('2', '株式会社サンプル')], [], '東京キッチン指示書');
+  assert.ok(osaka.html.includes('南海の定例分1件を除く'));
+  assert.ok(!tokyo.html.includes('南海'));
+});
+
 console.log(passed + ' tests passed');

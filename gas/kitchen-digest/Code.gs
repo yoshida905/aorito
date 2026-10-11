@@ -133,6 +133,8 @@ function buildKitchenMail_(today, end, orders, ahead, title) {
   const cfg = KITCHEN_CONFIG;
   const large = orders.filter(function (o) { return o.isLarge; }).concat(ahead || []);
   const pending = orders.filter(isHighlightedPending_);
+  // 南海など、保留が通常状態で数から外した件数(東京・東海のように該当がなければ表示しない)
+  const excludedPending = orders.filter(function (o) { return o.status === '保留'; }).length - pending.length;
   // 保留のまま配達日が近い案件(確定の催促が必要)
   const urgent = pending.filter(function (o) {
     return kDiffDays_(today, orderDeadline_(o)) <= cfg.PENDING_ALERT_MARGIN_DAYS;
@@ -149,7 +151,8 @@ function buildKitchenMail_(today, end, orders, ahead, title) {
   h.push('<div style="font-family:sans-serif;font-size:14px;color:#222">');
   h.push('<p>' + kEsc_(kFormatJa_(today)) + '〜' + kEsc_(kFormatJa_(end)) + ' のデリプロ注文一覧です(確定・保留)。' +
     'キッチン指示書(注文別:メイン)のPDFを添付しています。</p>');
-  h.push('<p>合計 ' + orders.length + '件 / ' + people(orders) + '名、うち保留 ' + pending.length + '件 / ' + people(pending) + '名(南海などの定例分を除く)</p>');
+  h.push('<p>合計 ' + orders.length + '件 / ' + people(orders) + '名、うち保留 ' + pending.length + '件 / ' + people(pending) + '名' +
+    (excludedPending ? '(南海の定例分' + excludedPending + '件を除く)' : '') + '</p>');
   h.push('<p>大型(' + cfg.LARGE_HEADCOUNT + '名以上・' + cfg.LARGE_LOOKAHEAD_DAYS + '日先まで) ' +
     large.length + '件 / ' + people(large) + '名</p>');
 
