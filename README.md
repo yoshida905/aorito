@@ -3,6 +3,8 @@
 ケータリング案件の現場終了後、その日のうちにGoogleフォームでアンケートを収集し、
 Google Apps Script(GAS)で自動的に案件管理スプレッドシートへ反映・要対応案件のメール通知までを行う仕組みです。
 
+- デリプロ売上集計(PLの売上欄の自動化): [docs/delipro-sales.md](docs/delipro-sales.md)(`gas/delipro-sales/`)
+
 ## 構成
 
 ```
