@@ -402,27 +402,17 @@ function probeDeliproPages() {
 }
 
 /**
- * 調査用(1回だけ実行): 税率別の金額を出している「分析」画面の場所を調べるため、
- * メインメニューと、その中の「分析」を含むリンク先の画面を「delipro_probe」フォルダに保存する。
+ * 調査用(1回だけ実行): 税率別の金額(10%・8%・0%対象)が出る「売上分析(期間)」の画面
+ * (analyze_sale_time.php)を「delipro_probe」フォルダに保存する。検索条件の項目名を確認する目的で使う。
  */
 function probeDeliproAnalysis() {
   const cfg = SALES_CONFIG;
   const client = deliproLogin_();
   const it = DriveApp.getFoldersByName(cfg.PROBE_FOLDER);
   const folder = it.hasNext() ? it.next() : DriveApp.createFolder(cfg.PROBE_FOLDER);
-
-  const menu = deliproRequest_(client, 'index.php', { method: 'get' }).getContentText('UTF-8');
-  folder.createFile('page_menu.html', menu, MimeType.HTML);
-  const re = /<a[^>]*href="([^"#][^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
-  const seen = {};
-  let m, n = 0;
-  while ((m = re.exec(menu)) !== null) {
-    const href = m[1], text = m[2].replace(/<[^>]+>/g, '').trim();
-    if (text.indexOf('分析') === -1 || /^javascript:/.test(href) || seen[href]) continue;
-    seen[href] = true;
-    const html = deliproRequest_(client, href.replace(/&amp;/g, '&'), { method: 'get' }).getContentText('UTF-8');
-    folder.createFile('page_analysis_' + (++n) + '.html', html, MimeType.HTML);
-    Logger.log('分析の画面: ' + text + ' → ' + href);
-  }
-  Logger.log('保存先: ' + folder.getUrl() + ' / 分析の画面 ' + n + '件');
+  ['analyze_sale_time.php', 'index.php'].forEach(function (path) {
+    const html = deliproRequest_(client, path, { method: 'get' }).getContentText('UTF-8');
+    folder.createFile('page_' + path.replace('.php', '') + '.html', html, MimeType.HTML);
+  });
+  Logger.log('保存先: ' + folder.getUrl());
 }
