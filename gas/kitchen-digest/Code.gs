@@ -48,14 +48,11 @@ function runKitchenDigest_(mailTo) {
     const ids = Object.keys(byId);
 
     // 2. キッチン指示書PDFを読み取り、注文状態を付け合わせる
-    // GoogleのPDF読み取り(OCR)は1回に読めるページ数と頻度に上限があるため、
-    // 注文を小分けにしてPDFを取得し、間隔を空けて読み取る(キッチン指示書は1注文=1ページ)
+    // デリプロのPDFは文字データを持っているので、OCRを使わずに直接読み取る(回数制限なし・数秒で終わる)
     let orders = [];
-    for (let i = 0; i < ids.length; i += cfg.OCR_CHUNK_SIZE) {
-      if (i > 0) Utilities.sleep(cfg.OCR_INTERVAL_MS);
-      const chunk = ids.slice(i, i + cfg.OCR_CHUNK_SIZE);
-      const pdf = deliproKitchenPdf_(client, chunk, 'kitchen_scan_' + stamp + '_' + i + '.pdf');
-      orders = orders.concat(parseKitchenText_(extractKitchenPdfTextWithRetry_(pdf), today));
+    if (ids.length) {
+      const pdf = deliproKitchenPdf_(client, ids, 'kitchen_scan_' + stamp + '.pdf');
+      orders = parseKitchenText_(extractPdfText_(pdf.getBytes()), today);
     }
     const seen = {};
     orders.forEach(function (o) {
@@ -98,38 +95,6 @@ function runKitchenDigest_(mailTo) {
   } catch (err) {
     Logger.log('runKitchenDigest_ failed: ' + (err && err.stack ? err.stack : err));
     MailApp.sendEmail(cfg.ADMIN_EMAIL, '【エラー】キッチン指示書メール', String(err && err.stack ? err.stack : err));
-  }
-}
-
-/** 読み取りの頻度制限(rate limit)に当たったら、待ってから再挑戦する */
-function extractKitchenPdfTextWithRetry_(blob) {
-  const waits = [10000, 30000, 60000];
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return extractKitchenPdfText_(blob);
-    } catch (err) {
-      if (attempt >= waits.length || !/rate limit|User rate|429|503/i.test(String(err))) throw err;
-      Utilities.sleep(waits[attempt]);
-    }
-  }
-}
-
-/**
- * PDFをGoogleドキュメントに一時変換してテキストを取り出す。
- * 要: Apps Scriptの「サービス」でDrive APIを追加(v2・v3のどちらでも動く)
- */
-function extractKitchenPdfText_(blob) {
-  const isV3 = typeof Drive.Files.create === 'function';
-  const tmp = isV3
-    ? Drive.Files.create({ name: 'tmp_kitchen_' + blob.getName(), mimeType: MimeType.GOOGLE_DOCS }, blob,
-      { ocrLanguage: 'ja', fields: 'id' })
-    // v2 では変換先の種類を指定せず、PDFとして渡して ocr:true でGoogleドキュメントに変換する
-    : Drive.Files.insert({ title: 'tmp_kitchen_' + blob.getName() }, blob.setContentType(MimeType.PDF),
-      { ocr: true, ocrLanguage: 'ja' });
-  try {
-    return DocumentApp.openById(tmp.id).getBody().getText();
-  } finally {
-    Drive.Files.remove(tmp.id);
   }
 }
 

@@ -8,7 +8,7 @@
 
 1. `login.php` にログイン(ID・パスワードはスクリプトプロパティから読む)
 2. 集配管理 `deli.php` で、配達日 今日〜21日後・受付=`OFFICE_ID` の注文を「確定」「保留」で別々に検索(取消・練習は除外)
-3. 検索結果の注文番号で `deli.php?mode=print_kitchen&is_main=true` からキッチン指示書PDFを取得し、注文ごとに分解
+3. 検索結果の注文番号で `deli.php?mode=print_kitchen&is_main=true` からキッチン指示書PDFを取得し、OCRを使わずに文字を直接取り出して注文ごとに分解(`PdfText.gs`)
 4. 注文番号で保留・確定を付け合わせ、人数を推定してメールを作成
 5. 一覧の「全N件」と取得件数が合わない、ログインできないなどの場合は `ADMIN_EMAIL` にエラーメール
 
@@ -31,8 +31,8 @@ PDFに人数欄がないため、次の最大値を人数とみなします。
 ## セットアップ
 
 1. https://script.google.com で新しいプロジェクトを作成し、`gas/kitchen-digest/` の
-   `Config.gs`・`KitchenParser.gs`・`DeliListParser.gs`・`DeliproClient.gs`・`Code.gs`・`appsscript.json` を貼り付け
-2. 「サービス」で Drive API を追加(v2・v3どちらでも可)
+   `Config.gs`・`PdfText.gs`・`KitchenParser.gs`・`DeliListParser.gs`・`DeliproClient.gs`・`Code.gs`・`appsscript.json` を貼り付け
+2. (Drive API の追加は不要。PDFは直接読み取る)
 3. 「プロジェクトの設定」→「スクリプト プロパティ」に次を登録(コードやGitHubには書かない)
    - `DELIPRO_CONTRACT_ID` / `DELIPRO_STAFF_ID` / `DELIPRO_PASSWORD`
    - `MAIL_TO`(送信先。カンマ区切り。未登録なら `ADMIN_EMAIL` にだけ送る)

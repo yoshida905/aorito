@@ -5,9 +5,9 @@ const vm = require('vm');
 const assert = require('assert');
 
 const dir = path.join(__dirname, '..', 'gas', 'kitchen-digest');
-const ctx = {};
+const ctx = { Uint8Array, Uint16Array };
 vm.createContext(ctx);
-['Config.gs', 'KitchenParser.gs', 'DeliListParser.gs', 'Code.gs'].forEach((f) => {
+['Config.gs', 'PdfText.gs', 'KitchenParser.gs', 'DeliListParser.gs', 'Code.gs'].forEach((f) => {
   vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8').replace(/^const /gm, 'var '), ctx, { filename: f });
 });
 
@@ -110,6 +110,19 @@ test('南海の保留は色分けせず、保留件数にも数えない', () =>
   assert.ok(mail.subject.includes('(保留1件)'));
   assert.strictEqual((mail.html.match(/>保留<\/b>/g) || []).length, 1);
   assert.strictEqual((mail.html.match(/#fff6d6/g) || []).length, 1);
+});
+
+
+test('PDFから直接(OCRなしで)文字を取り出して注文を読める', () => {
+  const bytes = Array.from(fs.readFileSync(path.join(__dirname, 'fixtures', 'kitchen_sample.pdf'))).map((b) => (b > 127 ? b - 256 : b));
+  const text = ctx.extractPdfText_(bytes);
+  assert.ok(text.includes('Powered by TCPDF'));
+  const o = ctx.parseKitchenText_(text, '2026-10-11');
+  assert.strictEqual(o.length, 1);
+  assert.strictEqual(o[0].number, '9001');
+  assert.strictEqual(o[0].client, '株式会社サンプル');
+  assert.strictEqual(o[0].place, '中央区1-2-3サンプルビル');
+  assert.strictEqual(o[0].headcount, 60);
 });
 
 console.log(passed + ' tests passed');

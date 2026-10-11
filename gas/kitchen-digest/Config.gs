@@ -27,9 +27,5 @@ const KITCHEN_CONFIG = {
   // 毎日の送信時刻(時)。GASの仕様上、この時刻から1時間以内のどこかで実行されます
   TRIGGER_HOUR: 7,
 
-  // PDF読み取りの小分け: 1回に読む注文数と、読み取りの間隔(ミリ秒)
-  OCR_CHUNK_SIZE: 10,
-  OCR_INTERVAL_MS: 3000,
-
   TIME_ZONE: 'Asia/Tokyo',
 };
