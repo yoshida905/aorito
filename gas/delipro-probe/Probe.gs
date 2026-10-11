@@ -37,14 +37,16 @@ function probeDelipro() {
   const afterLogin = probeFetch_(action, { method: 'post', payload: payload }, jar);
   saveProbe_(folder, '2_after_login', afterLogin, '送信した項目名: ' + Object.keys(payload).join(', '));
 
-  // 3. ログイン後の画面にあるリンクから「集配」を含むページを開く
-  const links = extractLinks_(afterLogin.body);
-  const target = links.filter(function (l) { return /集配|haisou|delivery|shuhai/i.test(l.text + ' ' + l.href); })[0];
-  if (target) {
-    const listPage = probeFetch_(resolveUrl_(target.href), { method: 'get' }, jar);
-    saveProbe_(folder, '3_shuhai', listPage, 'リンク: ' + target.text + ' ' + target.href);
-  }
-  saveProbe_(folder, '4_links', { status: 0, url: '', body: links.map(function (l) { return l.text + '\t' + l.href; }).join('\n') });
+  // 3. 集配管理(deli.php)の画面と、その画面が読み込む自前のJavaScriptを保存する
+  //    (ダウンロードボタンはJavaScriptで送信内容を組み立てている可能性があるため)
+  const deli = probeFetch_(PROBE_BASE + 'deli.php', { method: 'get' }, jar);
+  saveProbe_(folder, '3_deli', deli);
+  const scripts = (deli.body.match(/<script[^>]*src\s*=\s*["'][^"']+["']/gi) || [])
+    .map(function (tag) { return tag.match(/src\s*=\s*["']([^"']+)["']/i)[1]; })
+    .filter(function (src) { return !/^(https?:)?\/\//i.test(src) && !/jquery|jkl-|select2|multiple-select|blockUI|headermsg/i.test(src); });
+  scripts.slice(0, 6).forEach(function (src, i) {
+    saveProbe_(folder, '4_js_' + i, probeFetch_(resolveUrl_(src), { method: 'get' }, jar));
+  });
   Logger.log('保存先: ' + folder.getUrl());
 }
 
@@ -92,16 +94,6 @@ function findLoginForm_(html) {
     return { action: action, inputs: inputs };
   }
   return null;
-}
-
-function extractLinks_(html) {
-  const out = [];
-  const re = /<a[^>]*href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  let m;
-  while ((m = re.exec(html)) !== null) {
-    out.push({ href: m[1], text: m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim() });
-  }
-  return out;
 }
 
 function resolveUrl_(href) {
