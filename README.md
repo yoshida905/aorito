@@ -1,8 +1,7 @@
 # aorito - ケータリング業務の自動化
 
 - ケータリング現場アンケート自動化(このページ)
-- デリプロ注文一覧メールの毎朝自動送信: [docs/order-digest.md](docs/order-digest.md)(`gas/order-digest/`)
-- キッチン指示書メールの毎朝自動送信: [docs/kitchen-digest.md](docs/kitchen-digest.md)(`gas/kitchen-digest/`)
+- デリプロ注文一覧(キッチン指示書)メールの毎朝自動送信: [docs/kitchen-digest.md](docs/kitchen-digest.md)(`gas/kitchen-digest/`)
 
 ## ケータリング現場アンケート自動化
 

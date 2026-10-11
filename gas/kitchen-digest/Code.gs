@@ -7,15 +7,21 @@
  * セットアップ手順は docs/kitchen-digest.md を参照。
  */
 
-/** 毎朝トリガーで実行されるメイン処理 */
+/** 毎朝トリガーで実行されるメイン処理。送信先が登録されている事業所ごとに1通ずつ送る */
 function sendKitchenDigest() {
-  const to = PropertiesService.getScriptProperties().getProperty('MAIL_TO');
-  runKitchenDigest_(to || KITCHEN_CONFIG.ADMIN_EMAIL);
+  const props = PropertiesService.getScriptProperties();
+  KITCHEN_CONFIG.OFFICES.forEach(function (office) {
+    const to = props.getProperty(office.mailToProperty);
+    if (to) runKitchenDigest_(office, to);
+  });
 }
 
-/** 動作確認用: 管理者宛てにだけ送る */
+/** 動作確認用: 送信先が登録されている事業所の分を、管理者宛てにだけ送る */
 function testKitchenDigestToAdmin() {
-  runKitchenDigest_(KITCHEN_CONFIG.ADMIN_EMAIL);
+  const props = PropertiesService.getScriptProperties();
+  KITCHEN_CONFIG.OFFICES.forEach(function (office) {
+    if (props.getProperty(office.mailToProperty)) runKitchenDigest_(office, KITCHEN_CONFIG.ADMIN_EMAIL);
+  });
 }
 
 /** 毎朝の時間トリガーを作り直す(1回だけ手動実行する) */
@@ -31,7 +37,7 @@ function setupKitchenTrigger() {
     .create();
 }
 
-function runKitchenDigest_(mailTo) {
+function runKitchenDigest_(office, mailTo) {
   const cfg = KITCHEN_CONFIG;
   try {
     const today = Utilities.formatDate(new Date(), cfg.TIME_ZONE, 'yyyy-MM-dd');
@@ -41,8 +47,8 @@ function runKitchenDigest_(mailTo) {
 
     // 1. 確定・保留の注文を検索(取消・練習は除く)
     const client = deliproLogin_();
-    const listed = deliproSearch_(client, today, scanEnd, '0', cfg.OFFICE_ID)
-      .concat(deliproSearch_(client, today, scanEnd, '1', cfg.OFFICE_ID));
+    const listed = deliproSearch_(client, today, scanEnd, '0', office.id)
+      .concat(deliproSearch_(client, today, scanEnd, '1', office.id));
     const byId = {};
     listed.forEach(function (o) { byId[o.odid] = o; });
     const ids = Object.keys(byId);
@@ -84,7 +90,7 @@ function runKitchenDigest_(mailTo) {
       ? [deliproKitchenPdf_(client, main.map(function (o) { return o.number; }), 'kitchen_' + stamp + '.pdf')]
       : [];
 
-    const mail = buildKitchenMail_(today, end, main, ahead);
+    const mail = buildKitchenMail_(today, end, main, ahead, office.title);
     MailApp.sendEmail({
       to: mailTo,
       subject: mail.subject,
@@ -94,21 +100,25 @@ function runKitchenDigest_(mailTo) {
     });
   } catch (err) {
     Logger.log('runKitchenDigest_ failed: ' + (err && err.stack ? err.stack : err));
-    MailApp.sendEmail(cfg.ADMIN_EMAIL, '【エラー】キッチン指示書メール', String(err && err.stack ? err.stack : err));
+    MailApp.sendEmail(cfg.ADMIN_EMAIL, '【エラー】' + office.title + 'メール', String(err && err.stack ? err.stack : err));
   }
 }
 
 /** メールの件名・HTML本文・テキスト本文を作る */
-function buildKitchenMail_(today, end, orders, ahead) {
+function buildKitchenMail_(today, end, orders, ahead, title) {
   const cfg = KITCHEN_CONFIG;
   const large = orders.filter(function (o) { return o.isLarge; }).concat(ahead || []);
   const pending = orders.filter(isHighlightedPending_);
+  // 保留のまま配達日が近い案件(確定の催促が必要)
+  const alertEnd = kAddDays_(today, cfg.PENDING_ALERT_DAYS);
+  const urgent = pending.filter(function (o) { return o.date <= alertEnd; });
   const people = function (list) {
     return list.reduce(function (s, o) { return s + (o.headcount || 0); }, 0);
   };
 
-  const subject = '【' + cfg.MAIL_TITLE + '】' + kFormatJa_(today) + '〜' + kFormatJa_(end) +
-    ' ' + orders.length + '件(保留' + pending.length + '件)・大型' + large.length + '件';
+  const subject = '【' + title + '】' + kFormatJa_(today) + '〜' + kFormatJa_(end) +
+    ' ' + orders.length + '件(保留' + pending.length + '件)・大型' + large.length + '件' +
+    (urgent.length ? '・要催促' + urgent.length + '件' : '');
 
   const h = [];
   h.push('<div style="font-family:sans-serif;font-size:14px;color:#222">');
@@ -117,6 +127,11 @@ function buildKitchenMail_(today, end, orders, ahead) {
   h.push('<p>合計 ' + orders.length + '件 / ' + people(orders) + '名、うち保留 ' + pending.length + '件 / ' + people(pending) + '名(南海などの定例分を除く)</p>');
   h.push('<p>大型(' + cfg.LARGE_HEADCOUNT + '名以上・' + cfg.LARGE_LOOKAHEAD_DAYS + '日先まで) ' +
     large.length + '件 / ' + people(large) + '名</p>');
+
+  if (urgent.length) {
+    h.push('<h3 style="color:#b26a00;margin:16px 0 4px">確定の催促が必要(保留のまま' + cfg.PENDING_ALERT_DAYS + '日以内に配達)</h3>');
+    h.push(kitchenTable_(urgent, today, true));
+  }
 
   if (large.length) {
     h.push('<h3 style="color:#b00020;margin:16px 0 4px">大型案件(発注に注意)</h3>');

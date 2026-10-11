@@ -68,8 +68,8 @@ test('年またぎ: 12月に1月分は翌年', () => {
 test('メール本文を組み立てられる', () => {
   const list = orders.filter((o) => o.date <= '2026-10-18');
   list.forEach((o) => { o.isLarge = o.headcount >= 50; o.status = o.number === '4095' ? '保留' : '確定'; });
-  const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', list, []);
-  assert.strictEqual(mail.subject, '【大阪キッチン指示書】10/11(日)〜10/18(日) 6件(保留1件)・大型3件');
+  const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', list, [], '大阪キッチン指示書');
+  assert.strictEqual(mail.subject, '【大阪キッチン指示書】10/11(日)〜10/18(日) 6件(保留1件)・大型3件・要催促1件');
   assert.ok(mail.html.includes('大型案件'));
   assert.ok(mail.html.includes('注文なし'));
   assert.ok(mail.html.includes('(C)特別プラン×138'));
@@ -106,7 +106,7 @@ test('プラン欄が諸経費だけなら明細も表示する', () => {
 
 test('南海の保留は色分けせず、保留件数にも数えない', () => {
   const mk = (n, client) => ({ number: n, date: '2026-10-15', time: '09:30', client, place: '', plans: [], details: '', headcount: 10, status: '保留', isLarge: false });
-  const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', [mk('1', '南海電気鉄道株式会社 株式会社サンプル'), mk('2', '株式会社サンプル')], []);
+  const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', [mk('1', '南海電気鉄道株式会社 株式会社サンプル'), mk('2', '株式会社サンプル')], [], '大阪キッチン指示書');
   assert.ok(mail.subject.includes('(保留1件)'));
   assert.strictEqual((mail.html.match(/>保留<\/b>/g) || []).length, 1);
   assert.strictEqual((mail.html.match(/#fff6d6/g) || []).length, 1);
@@ -123,6 +123,15 @@ test('PDFから直接(OCRなしで)文字を取り出して注文を読める', 
   assert.strictEqual(o[0].client, '株式会社サンプル');
   assert.strictEqual(o[0].place, '中央区1-2-3サンプルビル');
   assert.strictEqual(o[0].headcount, 60);
+});
+
+
+test('保留のまま3日以内に配達の案件を催促リストに出す(南海は除く)', () => {
+  const mk = (n, client, date) => ({ number: n, date, time: '10:00', client, place: '', plans: [], details: '', headcount: 20, status: '保留', isLarge: false });
+  const list = [mk('1', '株式会社サンプル', '2026-10-13'), mk('2', '南海電気鉄道株式会社', '2026-10-12'), mk('3', '株式会社サンプル', '2026-10-16')];
+  const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', list, [], '東京キッチン指示書');
+  assert.strictEqual(mail.subject, '【東京キッチン指示書】10/11(日)〜10/18(日) 3件(保留2件)・大型0件・要催促1件');
+  assert.ok(mail.html.includes('確定の催促が必要'));
 });
 
 console.log(passed + ' tests passed');
