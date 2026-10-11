@@ -24,12 +24,18 @@ function summarizeDeliproSales_(fromYmd, toYmd) {
   const typeNames = cfg.ORDER_TYPES.map(function (t) { return t.name; });
   const fixed = fetchOrders_(client, fromYmd, toYmd, '0');
   const pending = fetchOrders_(client, fromYmd, toYmd, '1');
-  const sum = function (o) { return summarizeOrders_(o.orders, o.typeOf, typeNames, cfg.PAYMENT_ORDER); };
+  const taxFixed = fetchTax_(client, fromYmd, toYmd, '0');
+  const taxPending = fetchTax_(client, fromYmd, toYmd, '1');
+  const sum = function (o, tax) {
+    const s = summarizeOrders_(o.orders, o.typeOf, typeNames, cfg.PAYMENT_ORDER);
+    s.tax = tax;
+    return s;
+  };
   const both = { orders: fixed.orders.concat(pending.orders), typeOf: Object.assign({}, fixed.typeOf, pending.typeOf) };
   const blocks = [
-    { title: '確定＋保留(分析画面で注文状態を空欄にしたときと同じ)', summary: sum(both) },
-    { title: '確定のみ', summary: sum(fixed) },
-    { title: '保留のみ(取り消される可能性あり)', summary: sum(pending) },
+    { title: '確定＋保留(分析画面で注文状態を空欄にしたときと同じ)', summary: sum(both, addTax_(taxFixed, taxPending)) },
+    { title: '確定のみ', summary: sum(fixed, taxFixed) },
+    { title: '保留のみ(取り消される可能性あり)', summary: sum(pending, taxPending) },
   ];
   writeSummarySheet_(fromYmd, toYmd, blocks);
   blocks.forEach(function (b) { Logger.log(b.title + ': ' + b.summary.count + '件 ' + b.summary.total + '円'); });
@@ -52,6 +58,15 @@ function fetchOrders_(client, fromYmd, toYmd, status) {
     throw new Error('ダウンロードの件数が合いません(検索' + ids.length + '件・ダウンロード' + orders.length + '件)');
   }
   return { orders: orders, typeOf: typeOf };
+}
+
+/** 売上分析(期間)から、注文区分ごとの税率別の金額を取る。注文区分が未設定の注文は「区分なし」 */
+function fetchTax_(client, fromYmd, toYmd, status) {
+  const tax = {};
+  SALES_CONFIG.ORDER_TYPES.concat([{ id: '0', name: '区分なし' }]).forEach(function (t) {
+    tax[t.name] = deliproTaxSummary_(client, fromYmd, toYmd, t.id, status);
+  });
+  return tax;
 }
 
 /** 集配管理の「ダウンロード」(注文ごと1行のCSV)を文字列で取得する */

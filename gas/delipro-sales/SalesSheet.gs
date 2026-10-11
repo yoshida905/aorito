@@ -18,11 +18,14 @@ function writeSummarySheet_(fromYmd, toYmd, blocks) {
     sh.getRange(row + 1, 1, 1, table[0].length).setFontWeight('bold').setBackground('#eeeeee');
     sh.getRange(row + table.length, 1, 1, table[0].length).setFontWeight('bold');
     sh.getRange(row + 2, 2, table.length - 1, table[0].length - 1).setNumberFormat('#,##0');
-    const none = b.summary.types.indexOf('区分なし');
-    if (none !== -1) {
-      sh.getRange(row + 2 + none, 1, 1, table[0].length).setBackground('#fff2cc');
-      hasNone = true;
-    }
+    table.forEach(function (r, i) {
+      if (r[0] === '区分なし') {
+        sh.getRange(row + 1 + i, 1, 1, r.length).setBackground('#fff2cc');
+        hasNone = true;
+      }
+      // 照合の列: 支払区分別の合計と、売上分析(期間)の注文合計が合わない行を赤くする
+      if (/^差/.test(String(r[r.length - 1]))) sh.getRange(row + 1 + i, r.length).setBackground('#f4cccc');
+    });
     row += table.length + 3;
   });
   if (hasNone) {

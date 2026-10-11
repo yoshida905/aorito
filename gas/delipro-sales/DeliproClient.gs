@@ -84,3 +84,26 @@ function deliproRequest_(client, path, opts) {
   }
   throw new Error('リダイレクトが多すぎます: ' + path);
 }
+
+/**
+ * 売上分析(期間)で、配達日 from〜to・注文区分・注文状態を指定して、注文合計と税率別の金額を取る
+ * @param {string} orderType 注文区分のID('0'=未設定)
+ * @param {string} status '0'=確定 / '1'=保留
+ */
+function deliproTaxSummary_(client, fromYmd, toYmd, orderType, status) {
+  const payload = {
+    daytype: '2', // お届け日
+    datSt: fromYmd.replace(/-/g, '/'), slt_sttime: '0',
+    datEd: toYmd.replace(/-/g, '/'), slt_edtime: '24',
+    slt_group: '1', // 月別(合計欄だけを使う)
+    txt_discount_min: '', txt_discount_max: '',
+    odspid_s: '1',
+    txt_odcszip: '', txt_odcsadd: '', txt_odmemo: '',
+    'odtype[]': orderType,
+    odstatus: status,
+    txt_csid: '', txt_csname: '', txt_cstel: '',
+    hid_mode: '',
+  };
+  const html = deliproRequest_(client, 'analyze_sale_time.php', { method: 'post', payload: payload }).getContentText('UTF-8');
+  return parseTaxSummary_(html);
+}

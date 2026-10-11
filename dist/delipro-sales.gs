@@ -83,15 +83,44 @@ function summarizeOrders_(orders, typeOf, typeOrder, paymentOrder) {
   return { types: types, payments: payments, cells: cells, rowTotal: rowTotal, rowCount: rowCount, colTotal: colTotal, total: total, count: orders.length };
 }
 
-/** 集計結果を表(2次元配列)にする。1行目が見出し、最終行が合計 */
+const TAX_KEYS = ['r10', 'r8', 'r0', 'exTax'];
+
+/**
+ * 集計結果を表(2次元配列)にする。1行目が見出し、最終行が合計。
+ * s.tax(注文区分名→売上分析(期間)の税率別の金額)があれば、税率別の列と、支払区分別の合計との照合の列を足す
+ */
 function summaryToTable_(s) {
-  const table = [['注文区分', '件数'].concat(s.payments, ['合計(税込)'])];
-  s.types.forEach(function (t) {
+  const head = ['注文区分', '件数'].concat(s.payments, ['合計(税込)']);
+  const withTax = !!s.tax;
+  const zero = { total: 0, exTax: 0, r10: 0, r8: 0, r0: 0 };
+  const taxRow = function (total, t) {
+    if (!withTax) return [];
+    const diff = total - t.total;
+    return TAX_KEYS.map(function (k) { return t[k]; }).concat([diff === 0 ? '一致' : '差 ' + diff]);
+  };
+  const table = [withTax ? head.concat(['10%対象(税込)', '8%対象(税込)', '0%対象', '税抜', '照合']) : head];
+  const sumTax = Object.assign({}, zero);
+  const types = s.types.slice();
+  if (withTax && s.tax['区分なし'] && s.tax['区分なし'].total && types.indexOf('区分なし') === -1) types.push('区分なし');
+  types.forEach(function (t) {
     const c = s.cells[t] || {};
-    table.push([t, s.rowCount[t] || 0].concat(s.payments.map(function (p) { return c[p] || 0; }), [s.rowTotal[t] || 0]));
+    const tx = (withTax && s.tax[t]) || zero;
+    Object.keys(sumTax).forEach(function (k) { sumTax[k] += tx[k]; });
+    table.push([t, s.rowCount[t] || 0].concat(s.payments.map(function (p) { return c[p] || 0; }), [s.rowTotal[t] || 0], taxRow(s.rowTotal[t] || 0, tx)));
   });
-  table.push(['合計', s.count].concat(s.payments.map(function (p) { return s.colTotal[p] || 0; }), [s.total]));
+  table.push(['合計', s.count].concat(s.payments.map(function (p) { return s.colTotal[p] || 0; }), [s.total], taxRow(s.total, sumTax)));
   return table;
+}
+
+/** 売上分析(期間)の結果を、注文区分ごとに足し合わせる(確定＋保留の表用) */
+function addTax_(a, b) {
+  const out = {};
+  Object.keys(a).concat(Object.keys(b)).forEach(function (t) {
+    const x = a[t] || {}, y = b[t] || {};
+    out[t] = {};
+    ['total'].concat(TAX_KEYS).forEach(function (k) { out[t][k] = (x[k] || 0) + (y[k] || 0); });
+  });
+  return out;
 }
 
 /** ダブルクォート・改行入りのセルに対応した最小限のCSV解析 */
@@ -116,7 +145,37 @@ function parseCsv_(text) {
   return rows;
 }
 
-if (typeof module !== 'undefined') module.exports = { parseDeliDownloadCsv_, summarizeOrders_, summaryToTable_, parseCsv_ };
+if (typeof module !== 'undefined') module.exports = { parseDeliDownloadCsv_, summarizeOrders_, summaryToTable_, addTax_, parseCsv_ };
+
+// ===== TaxParser.gs =====
+/**
+ * デリプロ「売上分析(期間)」(analyze_sale_time.php)の画面から、注文合計と税率別の金額を読む(純粋関数)。
+ * 画面の表示: 注文合計 8,504,047 / 税抜: 7,801,630 / (10%対象 5,809,360) (8%対象 2,352,710) (0%対象 341,977)
+ * 税率別の金額は税込。該当がない税率は画面に出ないので0とする。
+ * @return {{total:number, exTax:number, r10:number, r8:number, r0:number}}
+ */
+function parseTaxSummary_(html) {
+  const text = String(html || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ');
+  const num = function (re) {
+    const m = text.match(re);
+    return m ? Number(m[1].replace(/,/g, '')) : null;
+  };
+  const m = text.match(/注文合計 客単価 点単価 ([\d,]+) ([\d,]+) ([\d,]+) ([\d,]+) 税抜\s*[:：]\s*([\d,]+)/);
+  if (!m) throw new Error('売上分析(期間)の画面から注文合計を読めませんでした。デリプロの画面の仕様変更の可能性があります');
+  const r = {
+    total: Number(m[4].replace(/,/g, '')),
+    exTax: Number(m[5].replace(/,/g, '')),
+    r10: num(/10\s*[%％]\s*対象\s*([\d,]+)/) || 0,
+    r8: num(/8\s*[%％]\s*対象\s*([\d,]+)/) || 0,
+    r0: num(/(?:^|[^0-9])0\s*[%％]\s*対象\s*([\d,]+)/) || 0,
+  };
+  if (r.r10 + r.r8 + r.r0 !== r.total) {
+    throw new Error('売上分析(期間)の税率別の合計(' + (r.r10 + r.r8 + r.r0) + ')が注文合計(' + r.total + ')と合いません');
+  }
+  return r;
+}
+
+if (typeof module !== 'undefined') module.exports = { parseTaxSummary_ };
 
 // ===== SalesSummary.gs =====
 /**
@@ -145,12 +204,18 @@ function summarizeDeliproSales_(fromYmd, toYmd) {
   const typeNames = cfg.ORDER_TYPES.map(function (t) { return t.name; });
   const fixed = fetchOrders_(client, fromYmd, toYmd, '0');
   const pending = fetchOrders_(client, fromYmd, toYmd, '1');
-  const sum = function (o) { return summarizeOrders_(o.orders, o.typeOf, typeNames, cfg.PAYMENT_ORDER); };
+  const taxFixed = fetchTax_(client, fromYmd, toYmd, '0');
+  const taxPending = fetchTax_(client, fromYmd, toYmd, '1');
+  const sum = function (o, tax) {
+    const s = summarizeOrders_(o.orders, o.typeOf, typeNames, cfg.PAYMENT_ORDER);
+    s.tax = tax;
+    return s;
+  };
   const both = { orders: fixed.orders.concat(pending.orders), typeOf: Object.assign({}, fixed.typeOf, pending.typeOf) };
   const blocks = [
-    { title: '確定＋保留(分析画面で注文状態を空欄にしたときと同じ)', summary: sum(both) },
-    { title: '確定のみ', summary: sum(fixed) },
-    { title: '保留のみ(取り消される可能性あり)', summary: sum(pending) },
+    { title: '確定＋保留(分析画面で注文状態を空欄にしたときと同じ)', summary: sum(both, addTax_(taxFixed, taxPending)) },
+    { title: '確定のみ', summary: sum(fixed, taxFixed) },
+    { title: '保留のみ(取り消される可能性あり)', summary: sum(pending, taxPending) },
   ];
   writeSummarySheet_(fromYmd, toYmd, blocks);
   blocks.forEach(function (b) { Logger.log(b.title + ': ' + b.summary.count + '件 ' + b.summary.total + '円'); });
@@ -173,6 +238,15 @@ function fetchOrders_(client, fromYmd, toYmd, status) {
     throw new Error('ダウンロードの件数が合いません(検索' + ids.length + '件・ダウンロード' + orders.length + '件)');
   }
   return { orders: orders, typeOf: typeOf };
+}
+
+/** 売上分析(期間)から、注文区分ごとの税率別の金額を取る。注文区分が未設定の注文は「区分なし」 */
+function fetchTax_(client, fromYmd, toYmd, status) {
+  const tax = {};
+  SALES_CONFIG.ORDER_TYPES.concat([{ id: '0', name: '区分なし' }]).forEach(function (t) {
+    tax[t.name] = deliproTaxSummary_(client, fromYmd, toYmd, t.id, status);
+  });
+  return tax;
 }
 
 /** 集配管理の「ダウンロード」(注文ごと1行のCSV)を文字列で取得する */
@@ -202,11 +276,14 @@ function writeSummarySheet_(fromYmd, toYmd, blocks) {
     sh.getRange(row + 1, 1, 1, table[0].length).setFontWeight('bold').setBackground('#eeeeee');
     sh.getRange(row + table.length, 1, 1, table[0].length).setFontWeight('bold');
     sh.getRange(row + 2, 2, table.length - 1, table[0].length - 1).setNumberFormat('#,##0');
-    const none = b.summary.types.indexOf('区分なし');
-    if (none !== -1) {
-      sh.getRange(row + 2 + none, 1, 1, table[0].length).setBackground('#fff2cc');
-      hasNone = true;
-    }
+    table.forEach(function (r, i) {
+      if (r[0] === '区分なし') {
+        sh.getRange(row + 1 + i, 1, 1, r.length).setBackground('#fff2cc');
+        hasNone = true;
+      }
+      // 照合の列: 支払区分別の合計と、売上分析(期間)の注文合計が合わない行を赤くする
+      if (/^差/.test(String(r[r.length - 1]))) sh.getRange(row + 1 + i, r.length).setBackground('#f4cccc');
+    });
     row += table.length + 3;
   });
   if (hasNone) {
@@ -351,6 +428,29 @@ function deliproRequest_(client, path, opts) {
     return res;
   }
   throw new Error('リダイレクトが多すぎます: ' + path);
+}
+
+/**
+ * 売上分析(期間)で、配達日 from〜to・注文区分・注文状態を指定して、注文合計と税率別の金額を取る
+ * @param {string} orderType 注文区分のID('0'=未設定)
+ * @param {string} status '0'=確定 / '1'=保留
+ */
+function deliproTaxSummary_(client, fromYmd, toYmd, orderType, status) {
+  const payload = {
+    daytype: '2', // お届け日
+    datSt: fromYmd.replace(/-/g, '/'), slt_sttime: '0',
+    datEd: toYmd.replace(/-/g, '/'), slt_edtime: '24',
+    slt_group: '1', // 月別(合計欄だけを使う)
+    txt_discount_min: '', txt_discount_max: '',
+    odspid_s: '1',
+    txt_odcszip: '', txt_odcsadd: '', txt_odmemo: '',
+    'odtype[]': orderType,
+    odstatus: status,
+    txt_csid: '', txt_csname: '', txt_cstel: '',
+    hid_mode: '',
+  };
+  const html = deliproRequest_(client, 'analyze_sale_time.php', { method: 'post', payload: payload }).getContentText('UTF-8');
+  return parseTaxSummary_(html);
 }
 
 // ===== CsvProbe.gs =====

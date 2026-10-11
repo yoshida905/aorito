@@ -44,15 +44,44 @@ function summarizeOrders_(orders, typeOf, typeOrder, paymentOrder) {
   return { types: types, payments: payments, cells: cells, rowTotal: rowTotal, rowCount: rowCount, colTotal: colTotal, total: total, count: orders.length };
 }
 
-/** 集計結果を表(2次元配列)にする。1行目が見出し、最終行が合計 */
+const TAX_KEYS = ['r10', 'r8', 'r0', 'exTax'];
+
+/**
+ * 集計結果を表(2次元配列)にする。1行目が見出し、最終行が合計。
+ * s.tax(注文区分名→売上分析(期間)の税率別の金額)があれば、税率別の列と、支払区分別の合計との照合の列を足す
+ */
 function summaryToTable_(s) {
-  const table = [['注文区分', '件数'].concat(s.payments, ['合計(税込)'])];
-  s.types.forEach(function (t) {
+  const head = ['注文区分', '件数'].concat(s.payments, ['合計(税込)']);
+  const withTax = !!s.tax;
+  const zero = { total: 0, exTax: 0, r10: 0, r8: 0, r0: 0 };
+  const taxRow = function (total, t) {
+    if (!withTax) return [];
+    const diff = total - t.total;
+    return TAX_KEYS.map(function (k) { return t[k]; }).concat([diff === 0 ? '一致' : '差 ' + diff]);
+  };
+  const table = [withTax ? head.concat(['10%対象(税込)', '8%対象(税込)', '0%対象', '税抜', '照合']) : head];
+  const sumTax = Object.assign({}, zero);
+  const types = s.types.slice();
+  if (withTax && s.tax['区分なし'] && s.tax['区分なし'].total && types.indexOf('区分なし') === -1) types.push('区分なし');
+  types.forEach(function (t) {
     const c = s.cells[t] || {};
-    table.push([t, s.rowCount[t] || 0].concat(s.payments.map(function (p) { return c[p] || 0; }), [s.rowTotal[t] || 0]));
+    const tx = (withTax && s.tax[t]) || zero;
+    Object.keys(sumTax).forEach(function (k) { sumTax[k] += tx[k]; });
+    table.push([t, s.rowCount[t] || 0].concat(s.payments.map(function (p) { return c[p] || 0; }), [s.rowTotal[t] || 0], taxRow(s.rowTotal[t] || 0, tx)));
   });
-  table.push(['合計', s.count].concat(s.payments.map(function (p) { return s.colTotal[p] || 0; }), [s.total]));
+  table.push(['合計', s.count].concat(s.payments.map(function (p) { return s.colTotal[p] || 0; }), [s.total], taxRow(s.total, sumTax)));
   return table;
+}
+
+/** 売上分析(期間)の結果を、注文区分ごとに足し合わせる(確定＋保留の表用) */
+function addTax_(a, b) {
+  const out = {};
+  Object.keys(a).concat(Object.keys(b)).forEach(function (t) {
+    const x = a[t] || {}, y = b[t] || {};
+    out[t] = {};
+    ['total'].concat(TAX_KEYS).forEach(function (k) { out[t][k] = (x[k] || 0) + (y[k] || 0); });
+  });
+  return out;
 }
 
 /** ダブルクォート・改行入りのセルに対応した最小限のCSV解析 */
@@ -77,4 +106,4 @@ function parseCsv_(text) {
   return rows;
 }
 
-if (typeof module !== 'undefined') module.exports = { parseDeliDownloadCsv_, summarizeOrders_, summaryToTable_, parseCsv_ };
+if (typeof module !== 'undefined') module.exports = { parseDeliDownloadCsv_, summarizeOrders_, summaryToTable_, addTax_, parseCsv_ };
