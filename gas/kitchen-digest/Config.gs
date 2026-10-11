@@ -1,16 +1,15 @@
 /**
  * キッチン指示書メールの設定。実環境に合わせてここだけ書き換えれば動作します。
+ * デリプロのID・パスワードはここではなく、スクリプトプロパティに登録します(docs/kitchen-digest.md)。
  */
 const KITCHEN_CONFIG = {
-  // デリプロからダウンロードしたキッチン指示書(注文別:メイン)PDFを置くフォルダのID
-  INBOX_FOLDER_ID: '',
-  // キッチン指示書のファイル名(デリプロの出力は kitchen_YYMMDDhhmm.pdf)
-  FILE_NAME_PATTERN: /^kitchen_.*\.pdf/i,
-  // この時間より古いPDFしかなければ「本日分が未保存」として警告する
-  MAX_FILE_AGE_HOURS: 20,
+  // 集配管理の「受付」で絞り込む事業所ID。'0'=すべて / '8'=東京 / '9'=大阪 / '24'=東海 / '22'=福岡・山口 / '23'=愛媛
+  OFFICE_ID: '9',
 
   // 一覧に載せる期間: 今日から何日先まで
   DAYS_AHEAD: 7,
+  // 大型案件だけはさらに先まで拾う(発注の前倒し用)。0にすると無効
+  LARGE_LOOKAHEAD_DAYS: 21,
   // 大型案件の判定: この人数以上
   LARGE_HEADCOUNT: 50,
 

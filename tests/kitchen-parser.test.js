@@ -7,7 +7,7 @@ const assert = require('assert');
 const dir = path.join(__dirname, '..', 'gas', 'kitchen-digest');
 const ctx = {};
 vm.createContext(ctx);
-['Config.gs', 'KitchenParser.gs', 'Code.gs'].forEach((f) => {
+['Config.gs', 'KitchenParser.gs', 'DeliListParser.gs', 'Code.gs'].forEach((f) => {
   vm.runInContext(fs.readFileSync(path.join(dir, f), 'utf8').replace(/^const /gm, 'var '), ctx, { filename: f });
 });
 
@@ -67,13 +67,21 @@ test('年またぎ: 12月に1月分は翌年', () => {
 
 test('メール本文を組み立てられる', () => {
   const list = orders.filter((o) => o.date <= '2026-10-18');
-  list.forEach((o) => { o.isLarge = o.headcount >= 50; });
-  const file = { getUrl: () => 'https://drive/x', getName: () => 'kitchen_2610111233.pdf' };
-  const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', list, file);
-  assert.strictEqual(mail.subject, '【キッチン指示書】10/11(日)〜10/18(日) 6件・大型3件');
+  list.forEach((o) => { o.isLarge = o.headcount >= 50; o.status = o.number === '4095' ? '保留' : '確定'; });
+  const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', list, []);
+  assert.strictEqual(mail.subject, '【キッチン指示書】10/11(日)〜10/18(日) 6件(保留1件)・大型3件');
   assert.ok(mail.html.includes('大型案件'));
   assert.ok(mail.html.includes('注文なし'));
   assert.ok(mail.html.includes('(C)特別プラン×138'));
+  assert.ok(mail.html.includes('>保留</b>'));
+});
+
+test('集配一覧HTMLから注文番号・保留・日時・受付を読み取れる', () => {
+  const r = ctx.parseDeliList_(fs.readFileSync(path.join(__dirname, 'fixtures', 'deli_list.html'), 'utf8'));
+  assert.strictEqual(r.total, 2);
+  assert.strictEqual(r.orders.length, 2);
+  assert.strictEqual(JSON.stringify(r.orders[0]), JSON.stringify({ odid: '4241', status: '確定', date: '2026-10-11', time: '', office: '東海事業所' }));
+  assert.strictEqual(JSON.stringify(r.orders[1]), JSON.stringify({ odid: '4155', status: '保留', date: '2026-10-11', time: '09:30', office: '大阪事業所' }));
 });
 
 test('複数プランは料理明細の数量を優先、大皿は人前×数量', () => {
