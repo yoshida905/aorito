@@ -83,8 +83,9 @@ function findLoginForm_(html) {
     const action = (forms[i].match(/<form[^>]*action\s*=\s*["']([^"']*)["']/i) || [])[1] || '';
     const inputs = (forms[i].match(/<input[^>]*>/gi) || []).map(function (tag) {
       const attr = function (n) {
-        const m = tag.match(new RegExp(n + '\\s*=\\s*["\']([^"\']*)["\']', 'i'));
-        return m ? m[1] : '';
+        // 引用符あり・なしの両方に対応する
+        const m = tag.match(new RegExp('\\s' + n + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i'));
+        return m ? (m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]) : '';
       };
       return { name: attr('name'), type: attr('type').toLowerCase(), value: attr('value') };
     });
