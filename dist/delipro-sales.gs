@@ -121,7 +121,7 @@ if (typeof module !== 'undefined') module.exports = { parseDeliDownloadCsv_, sum
 // ===== SalesSummary.gs =====
 /**
  * デリプロの確定注文を「注文区分×支払区分」で集計し、スプレッドシートに書き込む。
- * 金額はデリプロの「合計金額」(税込)。計上月は配達日の月。
+ * 金額はデリプロの「合計金額」(税込)。計上月は配達日の月。確定・保留・その合計の3つの表を出す。
  */
 
 /** 今月1日〜今日の配達分を集計する(手動実行・毎朝の自動実行用) */
@@ -142,22 +142,37 @@ function summarizeLastMonth() {
 function summarizeDeliproSales_(fromYmd, toYmd) {
   const cfg = SALES_CONFIG;
   const client = deliproLogin_();
+  const typeNames = cfg.ORDER_TYPES.map(function (t) { return t.name; });
+  const fixed = fetchOrders_(client, fromYmd, toYmd, '0');
+  const pending = fetchOrders_(client, fromYmd, toYmd, '1');
+  const sum = function (o) { return summarizeOrders_(o.orders, o.typeOf, typeNames, cfg.PAYMENT_ORDER); };
+  const both = { orders: fixed.orders.concat(pending.orders), typeOf: Object.assign({}, fixed.typeOf, pending.typeOf) };
+  const blocks = [
+    { title: '確定＋保留(分析画面で注文状態を空欄にしたときと同じ)', summary: sum(both) },
+    { title: '確定のみ', summary: sum(fixed) },
+    { title: '保留のみ(取り消される可能性あり)', summary: sum(pending) },
+  ];
+  writeSummarySheet_(fromYmd, toYmd, blocks);
+  blocks.forEach(function (b) { Logger.log(b.title + ': ' + b.summary.count + '件 ' + b.summary.total + '円'); });
+}
 
+/**
+ * 指定した注文状態('0'=確定 / '1'=保留)の注文を取得し、注文区分を付ける
+ * @return {{orders:{odid:string,payment:string,amount:number}[], typeOf:Object}}
+ */
+function fetchOrders_(client, fromYmd, toYmd, status) {
   // 注文区分ごとに検索して、注文番号→区分名の対応を作る
   const typeOf = {};
-  cfg.ORDER_TYPES.forEach(function (t) {
-    deliproSearch_(client, fromYmd, toYmd, '0', '0', t.id).forEach(function (o) { typeOf[o.odid] = t.name; });
+  SALES_CONFIG.ORDER_TYPES.forEach(function (t) {
+    deliproSearch_(client, fromYmd, toYmd, status, '0', t.id).forEach(function (o) { typeOf[o.odid] = t.name; });
   });
   // 区分を指定しない検索(全件)。区分の付け漏れを見つけるため、こちらを正とする
-  const ids = deliproSearch_(client, fromYmd, toYmd, '0', '0').map(function (o) { return o.odid; });
-
+  const ids = deliproSearch_(client, fromYmd, toYmd, status, '0').map(function (o) { return o.odid; });
   const orders = ids.length ? parseDeliDownloadCsv_(deliproDownloadCsv_(client, ids)) : [];
   if (orders.length !== ids.length) {
     throw new Error('ダウンロードの件数が合いません(検索' + ids.length + '件・ダウンロード' + orders.length + '件)');
   }
-  const summary = summarizeOrders_(orders, typeOf, cfg.ORDER_TYPES.map(function (t) { return t.name; }), cfg.PAYMENT_ORDER);
-  writeSummarySheet_(fromYmd, toYmd, summary);
-  Logger.log(fromYmd + '〜' + toYmd + ': ' + summary.count + '件 ' + summary.total + '円');
+  return { orders: orders, typeOf: typeOf };
 }
 
 /** 集配管理の「ダウンロード」(注文ごと1行のCSV)を文字列で取得する */
@@ -171,24 +186,33 @@ function deliproDownloadCsv_(client, odids) {
  * 集計結果を専用のスプレッドシート(SALES_CONFIG.SHEET_NAME)に書き込む。月ごとに1シート(例: 2026-10)。
  * PLのファイルには書き込まない(PL側からは数式で参照するか、数字を写す)。
  */
-function writeSummarySheet_(fromYmd, toYmd, summary) {
+function writeSummarySheet_(fromYmd, toYmd, blocks) {
   const ss = openSalesSpreadsheet_();
   const name = fromYmd.slice(0, 7);
   const sh = ss.getSheetByName(name) || ss.insertSheet(name, 0);
   sh.clear();
-  const table = summaryToTable_(summary);
   const now = Utilities.formatDate(new Date(), SALES_CONFIG.TIME_ZONE, 'yyyy/MM/dd HH:mm');
-  sh.getRange(1, 1).setValue('配達日 ' + fromYmd + '〜' + toYmd + '・確定のみ・税込(デリプロの合計金額)・更新 ' + now);
-  sh.getRange(3, 1, table.length, table[0].length).setValues(table);
-  sh.getRange(3, 1, 1, table[0].length).setFontWeight('bold').setBackground('#eeeeee');
-  sh.getRange(3 + table.length - 1, 1, 1, table[0].length).setFontWeight('bold');
-  sh.getRange(4, 2, table.length - 1, table[0].length - 1).setNumberFormat('#,##0');
-  const none = summary.types.indexOf('区分なし');
-  if (none !== -1) {
-    sh.getRange(4 + none, 1, 1, table[0].length).setBackground('#fff2cc');
-    sh.getRange(3 + table.length + 1, 1).setValue('※「区分なし」はデリプロで注文区分が未入力の注文です。デリプロで区分を入れてから再実行してください');
+  sh.getRange(1, 1).setValue('配達日 ' + fromYmd + '〜' + toYmd + '・税込(デリプロの合計金額)・更新 ' + now);
+  let row = 3, width = 1, hasNone = false;
+  blocks.forEach(function (b) {
+    const table = summaryToTable_(b.summary);
+    width = Math.max(width, table[0].length);
+    sh.getRange(row, 1).setValue('■ ' + b.title).setFontWeight('bold');
+    sh.getRange(row + 1, 1, table.length, table[0].length).setValues(table);
+    sh.getRange(row + 1, 1, 1, table[0].length).setFontWeight('bold').setBackground('#eeeeee');
+    sh.getRange(row + table.length, 1, 1, table[0].length).setFontWeight('bold');
+    sh.getRange(row + 2, 2, table.length - 1, table[0].length - 1).setNumberFormat('#,##0');
+    const none = b.summary.types.indexOf('区分なし');
+    if (none !== -1) {
+      sh.getRange(row + 2 + none, 1, 1, table[0].length).setBackground('#fff2cc');
+      hasNone = true;
+    }
+    row += table.length + 3;
+  });
+  if (hasNone) {
+    sh.getRange(row, 1).setValue('※「区分なし」はデリプロで注文区分が未入力の注文です。デリプロで区分を入れてから再実行してください');
   }
-  sh.autoResizeColumns(1, table[0].length);
+  sh.autoResizeColumns(1, width);
 }
 
 function openSalesSpreadsheet_() {
