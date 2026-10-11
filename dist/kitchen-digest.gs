@@ -242,7 +242,7 @@ function deliproKitchenPdf_(client, odids, fileName) {
   if (type.indexOf('pdf') === -1) {
     throw new Error('キッチン指示書PDFを取得できませんでした(Content-Type: ' + type + ')');
   }
-  return res.getBlob().setName(fileName);
+  return res.getBlob().setContentType(MimeType.PDF).setName(fileName);
 }
 
 /** Cookieを引き継ぎながらリダイレクトをたどる */
@@ -382,7 +382,8 @@ function extractKitchenPdfText_(blob) {
   const tmp = isV3
     ? Drive.Files.create({ name: 'tmp_kitchen_' + blob.getName(), mimeType: MimeType.GOOGLE_DOCS }, blob,
       { ocrLanguage: 'ja', fields: 'id' })
-    : Drive.Files.insert({ title: 'tmp_kitchen_' + blob.getName(), mimeType: MimeType.GOOGLE_DOCS }, blob,
+    // v2 では変換先の種類を指定せず、PDFとして渡して ocr:true でGoogleドキュメントに変換する
+    : Drive.Files.insert({ title: 'tmp_kitchen_' + blob.getName() }, blob.setContentType(MimeType.PDF),
       { ocr: true, ocrLanguage: 'ja' });
   try {
     return DocumentApp.openById(tmp.id).getBody().getText();

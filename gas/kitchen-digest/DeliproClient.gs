@@ -61,7 +61,7 @@ function deliproKitchenPdf_(client, odids, fileName) {
   if (type.indexOf('pdf') === -1) {
     throw new Error('キッチン指示書PDFを取得できませんでした(Content-Type: ' + type + ')');
   }
-  return res.getBlob().setName(fileName);
+  return res.getBlob().setContentType(MimeType.PDF).setName(fileName);
 }
 
 /** Cookieを引き継ぎながらリダイレクトをたどる */
