@@ -73,6 +73,7 @@ function deliproRequest_(client, path, opts) {
       if (eq > 0) client.jar[kv.slice(0, eq).trim()] = kv.slice(eq + 1).trim();
     });
     const code = res.getResponseCode();
+    if (client.trace) client.trace.push((options.method || 'get') + ' ' + url.replace(DELIPRO_BASE, '') + ' → ' + code);
     const location = headers['Location'] || headers['location'];
     if (code >= 300 && code < 400 && location) {
       url = /^https?:/.test(location) ? location : DELIPRO_BASE + String(location).replace(/^\.?\//, '');
@@ -105,5 +106,6 @@ function deliproTaxSummary_(client, fromYmd, toYmd, orderType, status) {
     hid_mode: '',
   };
   const html = deliproRequest_(client, 'analyze_sale_time.php', { method: 'post', payload: payload }).getContentText('UTF-8');
+  client.lastTaxHtml = html; // 調査用(probeTaxRequest)
   return parseTaxSummary_(html);
 }

@@ -635,6 +635,7 @@ function deliproRequest_(client, path, opts) {
       if (eq > 0) client.jar[kv.slice(0, eq).trim()] = kv.slice(eq + 1).trim();
     });
     const code = res.getResponseCode();
+    if (client.trace) client.trace.push((options.method || 'get') + ' ' + url.replace(DELIPRO_BASE, '') + ' → ' + code);
     const location = headers['Location'] || headers['location'];
     if (code >= 300 && code < 400 && location) {
       url = /^https?:/.test(location) ? location : DELIPRO_BASE + String(location).replace(/^\.?\//, '');
@@ -667,6 +668,7 @@ function deliproTaxSummary_(client, fromYmd, toYmd, orderType, status) {
     hid_mode: '',
   };
   const html = deliproRequest_(client, 'analyze_sale_time.php', { method: 'post', payload: payload }).getContentText('UTF-8');
+  client.lastTaxHtml = html; // 調査用(probeTaxRequest)
   return parseTaxSummary_(html);
 }
 
@@ -731,5 +733,27 @@ function probeDeliproAnalysis() {
     const html = deliproRequest_(client, path, { method: 'get' }).getContentText('UTF-8');
     folder.createFile('page_' + path.replace('.php', '') + '.html', html, MimeType.HTML);
   });
+  Logger.log('保存先: ' + folder.getUrl());
+}
+
+/**
+ * 調査用(1回だけ実行): 売上分析(期間)に検索条件(今月・大阪直販・確定)を送ったときの返事の画面を
+ * 「delipro_probe」フォルダに保存する。画面の検索条件の欄に、送った条件が反映されているかを確認する目的で使う。
+ */
+function probeTaxRequest() {
+  const cfg = SALES_CONFIG;
+  const today = Utilities.formatDate(new Date(), cfg.TIME_ZONE, 'yyyy-MM-dd');
+  const client = deliproLogin_();
+  client.trace = [];
+  const it = DriveApp.getFoldersByName(cfg.PROBE_FOLDER);
+  const folder = it.hasNext() ? it.next() : DriveApp.createFolder(cfg.PROBE_FOLDER);
+  try {
+    const r = deliproTaxSummary_(client, today.slice(0, 8) + '01', today, '4', '0');
+    Logger.log('読み取り結果: ' + JSON.stringify(r));
+  } catch (e) {
+    Logger.log('読み取りエラー: ' + e);
+  }
+  folder.createFile('page_tax_result.html', client.lastTaxHtml || '', MimeType.HTML);
+  Logger.log('通信の経過: ' + client.trace.join(' / '));
   Logger.log('保存先: ' + folder.getUrl());
 }
