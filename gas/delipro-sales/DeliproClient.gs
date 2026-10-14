@@ -64,7 +64,7 @@ function deliproRequest_(client, path, opts) {
     const res = UrlFetchApp.fetch(url, Object.assign({}, options, {
       followRedirects: false,
       muteHttpExceptions: true,
-      headers: { Cookie: Object.keys(client.jar).map(function (k) { return k + '=' + client.jar[k]; }).join('; ') },
+      headers: Object.assign({}, options.headers, { Cookie: Object.keys(client.jar).map(function (k) { return k + '=' + client.jar[k]; }).join('; ') }),
     }));
     const headers = res.getAllHeaders();
     [].concat(headers['Set-Cookie'] || headers['set-cookie'] || []).forEach(function (c) {
