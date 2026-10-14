@@ -25,4 +25,22 @@ function parseTaxSummary_(html) {
   return r;
 }
 
-if (typeof module !== 'undefined') module.exports = { parseTaxSummary_ };
+/**
+ * 返ってきた画面の検索条件の欄で、選ばれている値を読む(送った条件が効いたかの確認用)
+ * @return {{daytype:string[], odtype:string[], odstatus:string[]}} それぞれ選ばれているoptionのvalue
+ */
+function parseTaxForm_(html) {
+  const s = String(html || '');
+  const sel = function (name) {
+    const m = s.match(new RegExp('<select[^>]*name="' + name.replace(/[[\]]/g, '\\$&') + '"[\\s\\S]*?</select>'));
+    if (!m) return [];
+    const out = [];
+    const re = /<option value="([^"]*)"([^>]*)>/g;
+    let o;
+    while ((o = re.exec(m[0])) !== null) if (/selected/.test(o[2])) out.push(o[1]);
+    return out;
+  };
+  return { daytype: sel('daytype'), odtype: sel('odtype[]'), odstatus: sel('odstatus') };
+}
+
+if (typeof module !== 'undefined') module.exports = { parseTaxSummary_, parseTaxForm_ };

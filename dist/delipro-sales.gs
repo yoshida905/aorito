@@ -211,7 +211,25 @@ function parseTaxSummary_(html) {
   return r;
 }
 
-if (typeof module !== 'undefined') module.exports = { parseTaxSummary_ };
+/**
+ * 返ってきた画面の検索条件の欄で、選ばれている値を読む(送った条件が効いたかの確認用)
+ * @return {{daytype:string[], odtype:string[], odstatus:string[]}} それぞれ選ばれているoptionのvalue
+ */
+function parseTaxForm_(html) {
+  const s = String(html || '');
+  const sel = function (name) {
+    const m = s.match(new RegExp('<select[^>]*name="' + name.replace(/[[\]]/g, '\\$&') + '"[\\s\\S]*?</select>'));
+    if (!m) return [];
+    const out = [];
+    const re = /<option value="([^"]*)"([^>]*)>/g;
+    let o;
+    while ((o = re.exec(m[0])) !== null) if (/selected/.test(o[2])) out.push(o[1]);
+    return out;
+  };
+  return { daytype: sel('daytype'), odtype: sel('odtype[]'), odstatus: sel('odstatus') };
+}
+
+if (typeof module !== 'undefined') module.exports = { parseTaxSummary_, parseTaxForm_ };
 
 // ===== PlLayout.gs =====
 /**
@@ -667,8 +685,18 @@ function deliproTaxSummary_(client, fromYmd, toYmd, orderType, status) {
     txt_csid: '', txt_csname: '', txt_cstel: '',
     hid_mode: '',
   };
-  const html = deliproRequest_(client, 'analyze_sale_time.php', { method: 'post', payload: payload }).getContentText('UTF-8');
+  // 参照元(Referer/Origin)を付けないと、デリプロは「お届け日」「注文区分」の条件を無視する(2026/10 probeTaxVariants で確認)
+  const html = deliproRequest_(client, 'analyze_sale_time.php', {
+    method: 'post', payload: payload,
+    headers: { Referer: DELIPRO_BASE + 'analyze_sale_time.php', Origin: 'https://asp.delipro.jp' },
+  }).getContentText('UTF-8');
   client.lastTaxHtml = html; // 調査用(probeTaxRequest)
+  // 送った条件が画面に反映されているか確かめる。違えば間違った数字を書かないようにエラーにする
+  const f = parseTaxForm_(html);
+  if (f.daytype.join() !== '2' || f.odtype.join() !== String(orderType) || f.odstatus.join() !== String(status)) {
+    throw new Error('売上分析(期間)で検索条件が効いていません(日付の基準=' + f.daytype + ' 注文区分=' + f.odtype + ' 状態=' + f.odstatus
+      + ')。デリプロの仕様変更の可能性があります');
+  }
   return parseTaxSummary_(html);
 }
 

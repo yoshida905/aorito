@@ -70,3 +70,11 @@ const pc = buildPlCells_(plSummary, [{ sheet: 'PL_東京', blocks: [{ type: '東
 assert.deepStrictEqual(pc.cells.map(c => [c.row, c.value]), [[3, 0], [5, 110000], [6, 110000], [7, 5000], [8, 104630]]);
 assert.deepStrictEqual(pc.unmapped, [{ type: '東京直販', item: '未定', amount: 5000 }, { type: '愛媛', item: '合計', amount: 7000 }]);
 console.log('pl layout tests passed');
+
+// 売上分析(期間)の画面で選ばれている検索条件の読み取り
+const { parseTaxForm_ } = require('../gas/delipro-sales/TaxParser.gs');
+const form = '<select name="daytype"><option value="1"\n\t\t>注文日</option><option value="2"\n\t\tselected\n>お届け日</option></select>'
+  + '<select id="slt_odtype" class="slt_odtype" name="odtype[]" value="" multiple="multiple"><option value="0" >未設定</option><option value="4" selected>大阪直販</option></select>'
+  + '<select name="odstatus" id="odstatus"><option value="9999"\n>&nbsp;</option><option value="0"\n selected\n>確定</option></select>';
+assert.deepStrictEqual(parseTaxForm_(form), { daytype: ['2'], odtype: ['4'], odstatus: ['0'] });
+console.log('tax form tests passed');
