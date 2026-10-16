@@ -123,3 +123,21 @@ function probeInfomartScripts() {
   sh.getRange(1, 1, rows.length, 2).setValues(rows);
   Logger.log('「インフォマート調査」シートに書き出しました: ' + rows.length + '行');
 }
+
+/**
+ * 調査用(1回だけ実行): ログインしていないときのログイン画面にも「エラーらしい文」が最初から書かれているかを調べ、
+ * 「インフォマート調査」シートに書き出す。パスワードは使わず、ログインもしない
+ */
+function probeInfomartLogonText() {
+  const res = UrlFetchApp.fetch(INFOMART_LOGON_URL, { muteHttpExceptions: true });
+  const html = res.getContentText('Shift_JIS');
+  const text = html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, '\n');
+  const msgs = text.split('\n').map(function (x) { return x.trim(); })
+    .filter(function (x) { return x && /エラー|誤り|正しく|一致|ロック|失敗|無効|入力してください|できません/.test(x); });
+  const rows = [['ログイン前の画面のエラーらしい文', msgs.join(' / ') || 'なし']];
+  const ss = openSalesSpreadsheet_();
+  const sh = ss.getSheetByName('インフォマート調査') || ss.insertSheet('インフォマート調査');
+  sh.clear();
+  sh.getRange(1, 1, rows.length, 2).setValues(rows);
+  Logger.log(rows[0].join(': '));
+}
