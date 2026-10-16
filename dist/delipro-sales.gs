@@ -537,6 +537,44 @@ function comparePlMonth() {
   Logger.log(name + ' を作りました: ' + ss.getUrl());
 }
 
+/**
+ * 1回だけ実行: PL(関西・南海)の消費税の計算式を直す。税込の対象額に「*0.1」「*0.08」を掛けていたのを
+ * 「*10/110」「*8/108」にする。対象はPL_TAX_FIX_SHEETS の7〜26行(売上欄)だけで、109行目の法定福利費などは触らない。
+ * 直したセルは集計用スプレッドシートの「PL修正記録」シートに残す(元に戻すときに使う)
+ */
+function fixPlTaxFormulas() {
+  const plId = PropertiesService.getScriptProperties().getProperty('PL_SHEET_ID');
+  if (!plId) throw new Error('スクリプトプロパティ PL_SHEET_ID にPLのスプレッドシートIDを登録してください');
+  const pl = SpreadsheetApp.openById(plId);
+  const log = [['日時', 'シート', 'セル', '修正前', '修正後']];
+  const now = Utilities.formatDate(new Date(), SALES_CONFIG.TIME_ZONE, 'yyyy/MM/dd HH:mm');
+  ['PL_Mr.BUFFET_関西', 'PL_南海(グラン天空)'].forEach(function (name) {
+    const sh = pl.getSheetByName(name);
+    if (!sh) throw new Error('PLに「' + name + '」シートがありません');
+    const range = sh.getRange('D7:AC26');
+    const formulas = range.getFormulas();
+    let n10 = 0, n8 = 0;
+    formulas.forEach(function (row, i) {
+      row.forEach(function (f, j) {
+        let next = null;
+        if (/\*0\.1$/.test(f)) { next = f.replace(/\*0\.1$/, '*10/110'); n10++; }
+        else if (/\*0\.08$/.test(f)) { next = f.replace(/\*0\.08$/, '*8/108'); n8++; }
+        if (next === null) return;
+        const cell = range.getCell(i + 1, j + 1);
+        cell.setFormula(next); // 値や IMPORTRANGE のセルには触らないよう、1セルずつ書く
+        log.push([now, name, cell.getA1Notation(), "'" + f, "'" + next]);
+      });
+    });
+    Logger.log(name + ': 10%の式 ' + n10 + '件・8%の式 ' + n8 + '件を直しました');
+  });
+  const ss = openSalesSpreadsheet_();
+  const s = ss.getSheetByName('PL修正記録') || ss.insertSheet('PL修正記録');
+  const start = s.getLastRow() === 0 ? 1 : s.getLastRow() + 1;
+  const rows = start === 1 ? log : log.slice(1);
+  if (rows.length) s.getRange(start, 1, rows.length, 5).setValues(rows);
+  Logger.log('修正の記録: ' + ss.getUrl() + ' の「PL修正記録」シート');
+}
+
 // ===== DeliListParser.gs =====
 /**
  * デリプロ「集配管理(deli.php)」の検索結果HTMLを解析する純粋関数群。
