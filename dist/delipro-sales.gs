@@ -61,6 +61,9 @@ const SALES_CONFIG = {
     ] },
   ],
 
+  // comparePlMonths の「PL照合まとめ」に載せるPLのシート(PLの数式を自動にしたもの)
+  COMPARE_SUMMARY_SHEETS: ['PL_Mr.BUFFET_関西', 'PL_南海(グラン天空)'],
+
   // 毎朝の自動実行の時刻(時)。GASの仕様上、この時刻から1時間以内のどこかで実行される
   TRIGGER_HOUR: 6,
   // 月初の何日間、前月分も更新して「保留が残っていないか」を確認するか
@@ -501,8 +504,60 @@ function initPlSheet_(ss, sh) {
  * PLの手入力の数字と照合する(手動実行用)。結果は「PL照合_2026-09」シートに出す。PLは読むだけで書き込まない
  */
 function comparePlMonth() {
+  const ym = PropertiesService.getScriptProperties().getProperty('COMPARE_MONTH')
+    || Utilities.formatDate(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1), SALES_CONFIG.TIME_ZONE, 'yyyy-MM');
+  comparePlMonth_(ym);
+}
+
+/**
+ * 過去の月をまとめて照合する(手動実行用)。対象の月はスクリプトプロパティ COMPARE_QUEUE(カンマ区切り。例: 2026-03,2026-04)、
+ * なければ PL_FIRST_MONTH 月から前月まで。GASの実行時間(6分)の制限があるため、4分を過ぎたら残りを COMPARE_QUEUE に
+ * 保存して止まる。「すべて完了」と出るまで続けて実行する。結果は月ごとの「PL照合_yyyy-MM」と、差のある行だけを集めた「PL照合まとめ」
+ */
+function comparePlMonths() {
   const cfg = SALES_CONFIG;
-  const ym = PropertiesService.getScriptProperties().getProperty('COMPARE_MONTH') || Utilities.formatDate(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1), cfg.TIME_ZONE, 'yyyy-MM');
+  const props = PropertiesService.getScriptProperties();
+  let queue = (props.getProperty('COMPARE_QUEUE') || '').split(',').map(function (x) { return x.trim(); }).filter(String);
+  const fresh = !queue.length;
+  if (fresh) {
+    const now = new Date();
+    for (let d = new Date(now.getMonth() + 1 >= cfg.PL_FIRST_MONTH ? now.getFullYear() : now.getFullYear() - 1, cfg.PL_FIRST_MONTH - 1, 1);
+      d < new Date(now.getFullYear(), now.getMonth(), 1); d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      queue.push(Utilities.formatDate(d, cfg.TIME_ZONE, 'yyyy-MM'));
+    }
+  }
+  const ss = openSalesSpreadsheet_();
+  let sum = ss.getSheetByName('PL照合まとめ');
+  if (fresh || !sum) {
+    sum = sum || ss.insertSheet('PL照合まとめ');
+    sum.clear();
+    sum.getRange(1, 1, 1, 8).setValues([['月', 'PLのシート', '行', '区分', '項目', 'PL(手入力)', 'デリプロ(自動)', '差']]).setFontWeight('bold');
+  }
+  const started = Date.now();
+  while (queue.length && Date.now() - started < 4 * 60 * 1000) {
+    const ym = queue.shift();
+    // まとめには、自動化した関西・南海の行だけを載せる。計(税抜)はデリプロが注文ごとに端数を処理するため、千円未満の差は載せない
+    const diffs = comparePlMonth_(ym).filter(function (r) {
+      if (cfg.COMPARE_SUMMARY_SHEETS.indexOf(r[0]) === -1 || r[6] === 0) return false;
+      return !(r[3] === '計(税抜)' && Math.abs(r[6]) < 1000);
+    });
+    const rows = diffs.length ? diffs.map(function (r) { return [ym].concat(r); }) : [[ym, '(差なし)', '', '', '', '', '', 0]];
+    sum.getRange(sum.getLastRow() + 1, 1, rows.length, 8).setValues(rows);
+    props.setProperty('COMPARE_QUEUE', queue.join(','));
+    Logger.log(ym + ': 差のある行 ' + diffs.length + '件');
+  }
+  sum.getRange(2, 6, Math.max(sum.getLastRow() - 1, 1), 3).setNumberFormat('#,##0');
+  if (queue.length) {
+    Logger.log('時間切れのため止めました。残り: ' + queue.join(',') + '。もう一度 comparePlMonths を実行してください');
+  } else {
+    props.deleteProperty('COMPARE_QUEUE');
+    Logger.log('すべて完了: ' + ss.getUrl() + ' の「PL照合まとめ」シート');
+  }
+}
+
+/** 指定した月をデリプロから集計し、PLの手入力と照合して「PL照合_yyyy-MM」に書く。照合の行(見出しなし)を返す */
+function comparePlMonth_(ym) {
+  const cfg = SALES_CONFIG;
   const plId = PropertiesService.getScriptProperties().getProperty('PL_SHEET_ID');
   if (!plId) throw new Error('スクリプトプロパティ PL_SHEET_ID にPLのスプレッドシートIDを登録してください');
   const from = ym + '-01';
@@ -535,6 +590,7 @@ function comparePlMonth() {
   });
   s.autoResizeColumns(1, out[0].length);
   Logger.log(name + ' を作りました: ' + ss.getUrl());
+  return out.slice(1);
 }
 
 /**

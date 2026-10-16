@@ -57,6 +57,9 @@ const SALES_CONFIG = {
     ] },
   ],
 
+  // comparePlMonths の「PL照合まとめ」に載せるPLのシート(PLの数式を自動にしたもの)
+  COMPARE_SUMMARY_SHEETS: ['PL_Mr.BUFFET_関西', 'PL_南海(グラン天空)'],
+
   // 毎朝の自動実行の時刻(時)。GASの仕様上、この時刻から1時間以内のどこかで実行される
   TRIGGER_HOUR: 6,
   // 月初の何日間、前月分も更新して「保留が残っていないか」を確認するか
