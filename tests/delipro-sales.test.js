@@ -124,7 +124,7 @@ console.log('tax form tests passed');
   // 片方の事業所にしか行がない取引先を、行のない事業所へ振り替えたとき
   assert.match(assignInfomartSlips_([slips[2]], cfg, { 3: '関西' }).unmapped[0].reason, /関西のPLにこの取引先の行がない/);
   // インフォマート外の手入力(site 付き)は、その事業所の行に足す
-  const o = assignInfomartSlips_([slips[2], { id: 'outside:2', no: 'x', ym: '2026-09', person: '', site: '南海', supplier: '青果A', amount: 50 }], cfg, {});
+  const o = assignInfomartSlips_([slips[1], { id: 'outside:2', no: 'x', ym: '2026-09', person: '', site: '南海', supplier: '青果A', amount: 50 }], cfg, {});
   assert.strictEqual(o.cells[0].value, 750);
   assert.deepStrictEqual(o.lines.map(l => l.how), ['担当者', 'インフォマート外']);
 }
