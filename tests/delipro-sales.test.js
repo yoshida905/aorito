@@ -85,3 +85,43 @@ const form = '<select name="daytype"><option value="1"\n\t\t>注文日</option><
   + '<select name="odstatus" id="odstatus"><option value="9999"\n>&nbsp;</option><option value="0"\n selected\n>確定</option></select>';
 assert.deepStrictEqual(parseTaxForm_(form), { daytype: ['2'], odtype: ['4'], odstatus: ['0'] });
 console.log('tax form tests passed');
+
+// インフォマートの仕入れのCSV(架空の取引先・担当者)
+{
+  global.parseCsv_ = require('../gas/delipro-sales/SalesParser.gs').parseCsv_;
+  const { normalizeName_, parseInfomartCsv_, assignInfomartSlips_ } = require('../gas/delipro-sales/InfomartParser.gs');
+  assert.strictEqual(normalizeName_('株式会社Ｔｅｓｔ　Ｆｏｏｄ'), 'TestFood');
+  const H = '［データ区分］,［伝票日付］,［伝票No］,［自社担当者］,［取引先名］,［金額］,［総合計］,［取引ID_SYSTEM］';
+  const im = [
+    'H,2026/10/16', H,
+    'D,2026/09/01,1,山田 一郎,株式会社青果A,1000,1500,T1', 'D,2026/09/01,1,山田 一郎,株式会社青果A,500,,T1',
+    'D,2026/09/02,2,佐藤花子,株式会社青果A,700,700,T2',
+    'D,2026/09/03,3,佐藤花子,有限会社精肉B,2000,2000,T3',
+    'D,2026/09/04,4,山田一郎,株式会社青果A,-300,-300,T4',
+    'D,2026/09/05,5,山田一郎,鮮魚C,900,900,T5',
+    'D,2026/09/06,6,山田一郎,株式会社青果A,400,400,T6',
+    'D,2026/09/07,7,山田一郎,株式会社青果A,800,800,T7',
+    'D,2026/10/01,8,佐藤花子,有限会社精肉B,100,100,T8',
+    'F',
+  ].join('\r\n');
+  const slips = parseInfomartCsv_(im);
+  assert.strictEqual(slips.length, 8);
+  assert.deepStrictEqual([slips[0].ym, slips[0].amount, slips[3].amount], ['2026-09', 1500, -300]);
+  const cfg = {
+    SITES: { 関西: 'K', 南海: 'N' },
+    PERSONS: { '山田 一郎': '関西', 佐藤花子: '南海' },
+    SUPPLIERS: [{ match: '青果A', item: '青果A', rows: { 関西: 66, 南海: 68 } }, { match: '精肉B', item: '精肉B', rows: { 南海: 71 } }],
+  };
+  // 同じ取引IDの伝票は1回だけ。伝票6は南海へ振替、伝票7は除外
+  const r = assignInfomartSlips_(slips.concat([slips[0]]), cfg, { 6: '南海', 7: '除外' });
+  const v = (ym, sheet, row) => (r.cells.find(c => c.ym === ym && c.sheet === sheet && c.row === row) || {}).value;
+  assert.strictEqual(v('2026-09', 'K', 66), 1200);
+  assert.strictEqual(v('2026-09', 'N', 68), 1100);
+  assert.strictEqual(v('2026-09', 'N', 71), 2000);
+  assert.strictEqual(v('2026-10', 'N', 71), 100);
+  assert.deepStrictEqual(r.unmapped.map(u => [u.no, u.reason]), [['5', '取引先の割り当てがない']]);
+  assert.deepStrictEqual(r.lines.filter(l => l.row === 68).map(l => [l.how, l.count]), [['担当者', 1], ['振替', 1]]);
+  // 片方の事業所にしか行がない取引先を、行のない事業所へ振り替えたとき
+  assert.match(assignInfomartSlips_([slips[2]], cfg, { 3: '関西' }).unmapped[0].reason, /関西のPLにこの取引先の行がない/);
+}
+console.log('infomart ok');

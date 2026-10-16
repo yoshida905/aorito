@@ -42,6 +42,18 @@ function dailySalesJob() {
     }
     const r = summarizeDeliproSales_(today.slice(0, 8) + '01', today);
     issues.push.apply(issues, r.problems.map(function (m) { return '【' + today.slice(0, 7) + '】' + m; }));
+    // インフォマートのCSVが新しく置かれていたら取り込む(月1回)。取り込んだときは結果を知らせる
+    try {
+      const im = infomartDailyCheck_();
+      if (im) {
+        issues.push('【インフォマート】CSVを取り込みました(' + im.months.join(',') + ')。「仕入_yyyy-MM」シートを確認してください');
+        im.unmapped.forEach(function (u) {
+          issues.push('  PLに入っていない伝票: No.' + u.no + ' ' + u.date + ' ' + u.supplier + ' ' + u.amount.toLocaleString() + '円(' + u.reason + ')');
+        });
+      }
+    } catch (e) {
+      issues.push('【インフォマート】取り込みでエラー: ' + e);
+    }
     if (issues.length) {
       MailApp.sendEmail(salesNotifyTo_(), '【デリプロ売上集計】確認が必要な項目があります',
         issues.join('\n') + '\n\n集計シート: ' + openSalesSpreadsheet_().getUrl());

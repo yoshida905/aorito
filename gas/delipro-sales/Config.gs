@@ -66,6 +66,34 @@ const SALES_CONFIG = {
   // 月初の何日間、前月分も更新して「保留が残っていないか」を確認するか
   CLOSE_CHECK_DAYS: 5,
 
+  // インフォマートの仕入れ(買掛)のCSV → PLの食材費・資材費の欄(importInfomartCsv)。
+  // 金額は伝票の［総合計］(インフォマートでは消費税0円で登録されているため税抜と同じ)。計上月は［伝票日付］の月
+  // 事業所の決め方: 取引先の行が1つの事業所にしかなければその事業所。両方にある取引先は［自社担当者］で分ける。
+  // 例外は集計用スプレッドシートの「インフォマート振替」シートに伝票Noで書く(振替先: 関西 / 南海 / 除外)
+  INFOMART: {
+    FOLDER: 'infomart_csv', // CSVを置くマイドライブのフォルダ(スクリプトプロパティ INFOMART_FOLDER_ID があればそちら)
+    SITES: { 関西: 'PL_Mr.BUFFET_関西', 南海: 'PL_南海(グラン天空)' },
+    PERSONS: { 吉田裕紀: '関西', 花川瑞紀: '南海' }, // 名前の空白は無視して照合する
+    SUPPLIERS: [
+      { match: '広栄', item: '広栄', rows: { 関西: 66, 南海: 66 } },
+      { match: '日本食研', item: '日本食研', rows: { 関西: 69, 南海: 67 } },
+      { match: 'ベジプラス', item: 'ベジプラス', rows: { 関西: 71, 南海: 68 } },
+      { match: '三和物産', item: '三和物産', rows: { 関西: 72 } },
+      { match: '山久', item: '山久', rows: { 関西: 73 } },
+      { match: 'LightHouseiRene', item: '食材費(社内卸)本町SB(iRene)', rows: { 関西: 77 } },
+      { match: 'タムラ容器', item: '資材費 タムラ容器', rows: { 関西: 90 } },
+      { match: '日本パッケージ', item: '資材費 日本パッケージ', rows: { 関西: 93 } },
+      { match: '比那フーズ', item: '比那フーズ', rows: { 南海: 70 } },
+      { match: '肉のふじた', item: '肉のふじた', rows: { 南海: 71 } },
+      { match: '源氏', item: 'GENJI(源氏)', rows: { 南海: 72 } },
+      { match: '和田商店', item: '和田商店', rows: { 南海: 73 } },
+      { match: 'プリュスプリュス', item: 'プリュスプリュス', rows: { 南海: 75 } },
+      { match: 'シンポフーズ', item: 'シンポフーズ', rows: { 南海: 76 } },
+      { match: 'スタイルブレッド', item: 'スタイルブレッド', rows: { 南海: 78 } },
+      { match: 'かつらぎ産業', item: 'かつらぎ産業', rows: { 南海: 80 } },
+    ],
+  },
+
   // 調査用のダウンロードを保存するマイドライブのフォルダ名
   PROBE_FOLDER: 'delipro_probe',
   TIME_ZONE: 'Asia/Tokyo',

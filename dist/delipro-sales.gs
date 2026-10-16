@@ -70,6 +70,34 @@ const SALES_CONFIG = {
   // 月初の何日間、前月分も更新して「保留が残っていないか」を確認するか
   CLOSE_CHECK_DAYS: 5,
 
+  // インフォマートの仕入れ(買掛)のCSV → PLの食材費・資材費の欄(importInfomartCsv)。
+  // 金額は伝票の［総合計］(インフォマートでは消費税0円で登録されているため税抜と同じ)。計上月は［伝票日付］の月
+  // 事業所の決め方: 取引先の行が1つの事業所にしかなければその事業所。両方にある取引先は［自社担当者］で分ける。
+  // 例外は集計用スプレッドシートの「インフォマート振替」シートに伝票Noで書く(振替先: 関西 / 南海 / 除外)
+  INFOMART: {
+    FOLDER: 'infomart_csv', // CSVを置くマイドライブのフォルダ(スクリプトプロパティ INFOMART_FOLDER_ID があればそちら)
+    SITES: { 関西: 'PL_Mr.BUFFET_関西', 南海: 'PL_南海(グラン天空)' },
+    PERSONS: { 吉田裕紀: '関西', 花川瑞紀: '南海' }, // 名前の空白は無視して照合する
+    SUPPLIERS: [
+      { match: '広栄', item: '広栄', rows: { 関西: 66, 南海: 66 } },
+      { match: '日本食研', item: '日本食研', rows: { 関西: 69, 南海: 67 } },
+      { match: 'ベジプラス', item: 'ベジプラス', rows: { 関西: 71, 南海: 68 } },
+      { match: '三和物産', item: '三和物産', rows: { 関西: 72 } },
+      { match: '山久', item: '山久', rows: { 関西: 73 } },
+      { match: 'LightHouseiRene', item: '食材費(社内卸)本町SB(iRene)', rows: { 関西: 77 } },
+      { match: 'タムラ容器', item: '資材費 タムラ容器', rows: { 関西: 90 } },
+      { match: '日本パッケージ', item: '資材費 日本パッケージ', rows: { 関西: 93 } },
+      { match: '比那フーズ', item: '比那フーズ', rows: { 南海: 70 } },
+      { match: '肉のふじた', item: '肉のふじた', rows: { 南海: 71 } },
+      { match: '源氏', item: 'GENJI(源氏)', rows: { 南海: 72 } },
+      { match: '和田商店', item: '和田商店', rows: { 南海: 73 } },
+      { match: 'プリュスプリュス', item: 'プリュスプリュス', rows: { 南海: 75 } },
+      { match: 'シンポフーズ', item: 'シンポフーズ', rows: { 南海: 76 } },
+      { match: 'スタイルブレッド', item: 'スタイルブレッド', rows: { 南海: 78 } },
+      { match: 'かつらぎ産業', item: 'かつらぎ産業', rows: { 南海: 80 } },
+    ],
+  },
+
   // 調査用のダウンロードを保存するマイドライブのフォルダ名
   PROBE_FOLDER: 'delipro_probe',
   TIME_ZONE: 'Asia/Tokyo',
@@ -329,6 +357,18 @@ function dailySalesJob() {
     }
     const r = summarizeDeliproSales_(today.slice(0, 8) + '01', today);
     issues.push.apply(issues, r.problems.map(function (m) { return '【' + today.slice(0, 7) + '】' + m; }));
+    // インフォマートのCSVが新しく置かれていたら取り込む(月1回)。取り込んだときは結果を知らせる
+    try {
+      const im = infomartDailyCheck_();
+      if (im) {
+        issues.push('【インフォマート】CSVを取り込みました(' + im.months.join(',') + ')。「仕入_yyyy-MM」シートを確認してください');
+        im.unmapped.forEach(function (u) {
+          issues.push('  PLに入っていない伝票: No.' + u.no + ' ' + u.date + ' ' + u.supplier + ' ' + u.amount.toLocaleString() + '円(' + u.reason + ')');
+        });
+      }
+    } catch (e) {
+      issues.push('【インフォマート】取り込みでエラー: ' + e);
+    }
     if (issues.length) {
       MailApp.sendEmail(salesNotifyTo_(), '【デリプロ売上集計】確認が必要な項目があります',
         issues.join('\n') + '\n\n集計シート: ' + openSalesSpreadsheet_().getUrl());
@@ -635,6 +675,246 @@ function fixPlTaxFormulas() {
   const rows = start === 1 ? log : log.slice(1);
   if (rows.length) s.getRange(start, 1, rows.length, 5).setValues(rows);
   Logger.log('修正の記録: ' + ss.getUrl() + ' の「PL修正記録」シート');
+}
+
+// ===== InfomartParser.gs =====
+/**
+ * インフォマートの仕入れのCSV(cp932を文字列にしたもの)を読み、PLの食材費・資材費の欄に割り当てる
+ * (純粋関数。tests/delipro-sales.test.js)。
+ */
+
+/** 名前の比べ方: 全角英数を半角にし、空白と「株式会社」「有限会社」を除く */
+function normalizeName_(s) {
+  return String(s || '').normalize('NFKC').replace(/\s+/g, '').replace(/株式会社|有限会社|\(株\)|\(有\)/g, '');
+}
+
+/**
+ * データ区分 D の行のうち、伝票の最初の行(［総合計］が入っている行)を伝票として返す
+ * @return {{id:string,no:string,date:string,ym:string,person:string,supplier:string,amount:number}[]}
+ */
+function parseInfomartCsv_(text) {
+  const rows = parseCsv_(text);
+  const header = rows.filter(function (r) { return r[0] === '［データ区分］'; })[0];
+  if (!header) throw new Error('インフォマートのCSVの見出し(［データ区分］)が見つかりません');
+  const ix = {};
+  header.forEach(function (n, i) { ix[n] = i; });
+  ['［伝票日付］', '［伝票No］', '［自社担当者］', '［取引先名］', '［総合計］', '［取引ID_SYSTEM］'].forEach(function (n) {
+    if (!(n in ix)) throw new Error('インフォマートのCSVに列 ' + n + ' がありません');
+  });
+  return rows.filter(function (r) { return r[0] === 'D' && r[ix['［総合計］']] !== '' && r[ix['［総合計］']] != null; })
+    .map(function (r) {
+      const date = r[ix['［伝票日付］']];
+      return {
+        id: r[ix['［取引ID_SYSTEM］']], no: r[ix['［伝票No］']], date: date, ym: date.slice(0, 7).replace('/', '-'),
+        person: r[ix['［自社担当者］']], supplier: r[ix['［取引先名］']], amount: Number(r[ix['［総合計］']]) || 0,
+      };
+    });
+}
+
+/**
+ * 伝票を、月×事業所×PLの行に集計する
+ * @param slips parseInfomartCsv_ の結果(複数ファイル分を足してよい。取引IDが同じ伝票は1回だけ数える)
+ * @param transfers { 伝票No: '関西' | '南海' | '除外' }
+ * @return {{cells:{ym,sheet,row,value}[], lines:{ym,site,item,row,count,amount,how}[], unmapped:{ym,no,date,person,supplier,amount,reason}[]}}
+ */
+function assignInfomartSlips_(slips, cfg, transfers) {
+  transfers = transfers || {};
+  const persons = {};
+  Object.keys(cfg.PERSONS).forEach(function (p) { persons[normalizeName_(p)] = cfg.PERSONS[p]; });
+  const seen = {}, cellAt = {}, lineAt = {};
+  const cells = [], lines = [], unmapped = [];
+  slips.forEach(function (s) {
+    if (seen[s.id]) return;
+    seen[s.id] = true;
+    const sup = cfg.SUPPLIERS.filter(function (x) { return normalizeName_(s.supplier).indexOf(normalizeName_(x.match)) !== -1; })[0];
+    const miss = function (reason) {
+      unmapped.push({ ym: s.ym, no: s.no, date: s.date, person: s.person, supplier: s.supplier, amount: s.amount, reason: reason });
+    };
+    const t = transfers[String(s.no)];
+    if (t === '除外') return;
+    if (!sup) return miss('取引先の割り当てがない');
+    const sites = Object.keys(sup.rows);
+    let site, how;
+    if (t) { site = t; how = '振替'; }
+    else if (sites.length === 1) { site = sites[0]; how = '取引先'; }
+    else { site = persons[normalizeName_(s.person)]; how = '担当者'; }
+    if (!site) return miss('担当者から事業所が決まらない');
+    if (!(site in sup.rows)) return miss(site + 'のPLにこの取引先の行がない(振替先を確認)');
+    const sheet = cfg.SITES[site], row = sup.rows[site];
+    const ck = s.ym + '|' + sheet + '|' + row;
+    if (!cellAt[ck]) { cellAt[ck] = { ym: s.ym, sheet: sheet, row: row, value: 0 }; cells.push(cellAt[ck]); }
+    cellAt[ck].value += s.amount;
+    const lk = ck + '|' + how;
+    if (!lineAt[lk]) { lineAt[lk] = { ym: s.ym, site: site, item: sup.item, row: row, count: 0, amount: 0, how: how }; lines.push(lineAt[lk]); }
+    lineAt[lk].count++;
+    lineAt[lk].amount += s.amount;
+  });
+  return { cells: cells, lines: lines, unmapped: unmapped };
+}
+
+if (typeof module !== 'undefined') module.exports = { normalizeName_, parseInfomartCsv_, assignInfomartSlips_ };
+
+// ===== InfomartImport.gs =====
+/**
+ * インフォマートのCSV(月1回、フォルダに置く)から、PLの食材費・資材費を集計する。
+ * 書き込み先は集計用スプレッドシートのPL転記用シート(PLと同じシート名・同じセル番地)。PLのファイルには書き込まない。
+ */
+
+/**
+ * フォルダ内のCSVをすべて読み、含まれる月の食材費・資材費を転記用シートに書く(手動実行・自動実行用)。
+ * 同じ伝票が複数のファイルに入っていても1回だけ数えるので、何度実行してもよい。
+ * 明細は「仕入_yyyy-MM」シート、割り当てられなかった伝票は同じシートの下に黄色で出す
+ */
+function importInfomartCsv() {
+  const cfg = SALES_CONFIG.INFOMART;
+  const files = infomartCsvFiles_();
+  if (!files.length) {
+    Logger.log('フォルダ「' + infomartFolder_().getName() + '」にCSVがありません');
+    return { months: [], unmapped: [] };
+  }
+  let slips = [];
+  files.forEach(function (f) { slips = slips.concat(parseInfomartCsv_(f.getBlob().getDataAsString('Shift_JIS'))); });
+  const r = assignInfomartSlips_(slips, cfg, readInfomartTransfers_());
+  const ss = openSalesSpreadsheet_();
+  const months = {};
+  slips.forEach(function (s) { months[s.ym] = true; });
+  Object.keys(months).sort().forEach(function (ym) {
+    const col = plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN);
+    Object.keys(cfg.SITES).forEach(function (site) {
+      const name = cfg.SITES[site];
+      const sh = ss.getSheetByName(name) || ss.insertSheet(name);
+      sh.getRange(2, col).setValue(Number(ym.slice(5, 7)) + '月');
+      // その月の欄をいったん0にしてから書く(振替で行が変わったときに古い数字が残らないように)
+      cfg.SUPPLIERS.forEach(function (x) {
+        if (!(site in x.rows)) return;
+        sh.getRange(x.rows[site], 2, 1, 2).setValues([['インフォマート', x.item]]);
+        sh.getRange(x.rows[site], col).setValue(0).setNumberFormat('#,##0');
+      });
+    });
+    r.cells.filter(function (c) { return c.ym === ym; }).forEach(function (c) {
+      ss.getSheetByName(c.sheet).getRange(c.row, col).setValue(c.value);
+    });
+    writeInfomartDetail_(ss, ym, r);
+  });
+  Logger.log('取り込み: ' + files.length + 'ファイル・伝票' + slips.length + '件・月 ' + Object.keys(months).sort().join(',')
+    + (r.unmapped.length ? '。割り当てられなかった伝票 ' + r.unmapped.length + '件(「仕入_yyyy-MM」シートの下)' : ''));
+  return { months: Object.keys(months).sort(), unmapped: r.unmapped };
+}
+
+/** 「仕入_yyyy-MM」シートに、事業所×取引先の集計と、割り当てられなかった伝票を書く */
+function writeInfomartDetail_(ss, ym, r) {
+  const name = '仕入_' + ym;
+  const sh = ss.getSheetByName(name) || ss.insertSheet(name);
+  sh.clear();
+  const out = [['事業所', '取引先(PLの項目)', 'PLの行', '決め方', '伝票数', '金額']];
+  r.lines.filter(function (l) { return l.ym === ym; })
+    .sort(function (a, b) { return a.site === b.site ? a.row - b.row : a.site < b.site ? -1 : 1; })
+    .forEach(function (l) { out.push([l.site, l.item, l.row, l.how, l.count, l.amount]); });
+  sh.getRange(1, 1).setValue(ym + ' インフォマート(伝票日付の月・総合計)・更新 '
+    + Utilities.formatDate(new Date(), SALES_CONFIG.TIME_ZONE, 'yyyy/MM/dd HH:mm'));
+  sh.getRange(3, 1, out.length, out[0].length).setValues(out);
+  sh.getRange(3, 1, 1, out[0].length).setFontWeight('bold').setBackground('#eeeeee');
+  sh.getRange(4, 6, Math.max(out.length - 1, 1), 1).setNumberFormat('#,##0');
+  const miss = r.unmapped.filter(function (u) { return u.ym === ym; });
+  if (!miss.length) return;
+  const at = out.length + 5;
+  const m = [['伝票No', '伝票日付', '担当者', '取引先', '金額', '理由']].concat(miss.map(function (u) {
+    return [u.no, u.date, u.person, u.supplier, u.amount, u.reason];
+  }));
+  sh.getRange(at - 1, 1).setValue('■ PLに入っていない伝票(Config.gs の SUPPLIERS に足すか、「インフォマート振替」シートに書く)').setFontWeight('bold');
+  sh.getRange(at, 1, m.length, m[0].length).setValues(m).setBackground('#fff2cc');
+  sh.getRange(at, 1, 1, m[0].length).setFontWeight('bold');
+}
+
+/** 「インフォマート振替」シート(なければ作る)を読む。A列 伝票No、C列 振替先(関西 / 南海 / 除外) */
+function readInfomartTransfers_() {
+  const ss = openSalesSpreadsheet_();
+  let sh = ss.getSheetByName('インフォマート振替');
+  if (!sh) {
+    sh = ss.insertSheet('インフォマート振替');
+    sh.getRange(1, 1, 1, 4).setValues([['伝票No', '取引先(メモ)', '振替先(関西/南海/除外)', '理由(メモ)']]).setFontWeight('bold');
+    return {};
+  }
+  const out = {};
+  sh.getDataRange().getValues().slice(1).forEach(function (r) {
+    const no = String(r[0]).trim(), to = String(r[2]).trim();
+    if (!no) return;
+    if (['関西', '南海', '除外'].indexOf(to) === -1) throw new Error('「インフォマート振替」の伝票No ' + no + ' の振替先は 関西・南海・除外 のどれかにしてください: ' + to);
+    out[no] = to;
+  });
+  return out;
+}
+
+/** CSVを置くフォルダ(スクリプトプロパティ INFOMART_FOLDER_ID、なければマイドライブの INFOMART.FOLDER。なければ作る) */
+function infomartFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('INFOMART_FOLDER_ID');
+  if (id) return DriveApp.getFolderById(id);
+  const it = DriveApp.getFoldersByName(SALES_CONFIG.INFOMART.FOLDER);
+  const f = it.hasNext() ? it.next() : DriveApp.createFolder(SALES_CONFIG.INFOMART.FOLDER);
+  props.setProperty('INFOMART_FOLDER_ID', f.getId());
+  return f;
+}
+
+function infomartCsvFiles_() {
+  const out = [];
+  const it = infomartFolder_().getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    if (/\.csv$/i.test(f.getName())) out.push(f);
+  }
+  return out;
+}
+
+/**
+ * 毎朝の自動実行から呼ぶ。前回から新しいCSVが置かれたか、CSVが更新されたときだけ取り込み、結果をメールする
+ */
+function infomartDailyCheck_() {
+  const props = PropertiesService.getScriptProperties();
+  const last = Number(props.getProperty('INFOMART_LAST_IMPORT') || 0);
+  const newest = infomartCsvFiles_().reduce(function (m, f) { return Math.max(m, f.getLastUpdated().getTime()); }, 0);
+  if (!newest || newest <= last) return null;
+  const r = importInfomartCsv();
+  props.setProperty('INFOMART_LAST_IMPORT', String(newest));
+  return r;
+}
+
+/**
+ * 前月(またはスクリプトプロパティ COMPARE_MONTH の月)について、インフォマートの集計とPLの手入力を照合する(手動実行用)。
+ * 結果は「仕入照合_yyyy-MM」シート。PLは読むだけで書き込まない
+ */
+function compareInfomartMonth() {
+  const cfg = SALES_CONFIG.INFOMART;
+  const props = PropertiesService.getScriptProperties();
+  const ym = props.getProperty('COMPARE_MONTH')
+    || Utilities.formatDate(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1), SALES_CONFIG.TIME_ZONE, 'yyyy-MM');
+  const plId = props.getProperty('PL_SHEET_ID');
+  if (!plId) throw new Error('スクリプトプロパティ PL_SHEET_ID にPLのスプレッドシートIDを登録してください');
+  let slips = [];
+  infomartCsvFiles_().forEach(function (f) { slips = slips.concat(parseInfomartCsv_(f.getBlob().getDataAsString('Shift_JIS'))); });
+  const r = assignInfomartSlips_(slips.filter(function (s) { return s.ym === ym; }), cfg, readInfomartTransfers_());
+  const col = plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN);
+  const pl = SpreadsheetApp.openById(plId);
+  const out = [['事業所', 'PLの行', '項目', 'PL(手入力)', 'インフォマート(自動)', '差']];
+  Object.keys(cfg.SITES).forEach(function (site) {
+    const plSheet = pl.getSheetByName(cfg.SITES[site]);
+    cfg.SUPPLIERS.forEach(function (x) {
+      if (!(site in x.rows)) return;
+      const row = x.rows[site];
+      const auto = r.cells.filter(function (c) { return c.sheet === cfg.SITES[site] && c.row === row; }).reduce(function (a, c) { return a + c.value; }, 0);
+      const manual = plSheet ? Number(plSheet.getRange(row, col).getValue()) || 0 : 0;
+      out.push([site, row, x.item, manual, auto, auto - manual]);
+    });
+  });
+  const ss = openSalesSpreadsheet_();
+  const name = '仕入照合_' + ym;
+  const sh = ss.getSheetByName(name) || ss.insertSheet(name);
+  sh.clear();
+  sh.getRange(1, 1, out.length, out[0].length).setValues(out);
+  sh.getRange(1, 1, 1, out[0].length).setFontWeight('bold').setBackground('#eeeeee');
+  sh.getRange(2, 4, out.length - 1, 3).setNumberFormat('#,##0');
+  out.forEach(function (row, i) { if (i && row[5] !== 0) sh.getRange(i + 1, 6).setBackground('#f4cccc'); });
+  Logger.log(ym + ': 差のある行 ' + out.filter(function (x, i) { return i && x[5] !== 0; }).length + '件。' + ss.getUrl() + ' の「' + name + '」');
 }
 
 // ===== DeliListParser.gs =====
@@ -947,158 +1227,4 @@ function describeTaxForm_(html) {
   let total = '?';
   try { total = parseTaxSummary_(html).total; } catch (e) { total = '読めず'; }
   return '日付の基準=' + sel('daytype') + ' 注文区分=' + sel('odtype[]') + ' 状態=' + sel('odstatus') + ' 注文合計=' + total;
-}
-
-// ===== InfomartProbe.gs =====
-/**
- * インフォマート(食材・包材の仕入れ)からの自動取得の調査用。
- * ID・パスワードはコードに書かず、スクリプトプロパティ INFOMART_ID / INFOMART_PASSWORD に登録する。
- */
-const INFOMART_LOGON_URL = 'https://www.infomart.co.jp/scripts/logon.asp?CS=1';
-
-/** ログインしてCookieを保持したクライアントを返す(ID・パスワードはスクリプトプロパティから読む) */
-function infomartLogin_() {
-  const props = PropertiesService.getScriptProperties();
-  const id = props.getProperty('INFOMART_ID'), pwd = props.getProperty('INFOMART_PASSWORD');
-  if (!id || !pwd) throw new Error('スクリプトプロパティ INFOMART_ID / INFOMART_PASSWORD を登録してください');
-  const client = { jar: {}, trace: [] };
-  // パスワードの中身は出さずに、登録ミスの手がかり(文字数・前後の空白)だけを残す
-  client.check = 'IDの文字数=' + id.length + ' / パスワードの文字数=' + pwd.length
-    + ' / 前後の空白=' + (/^\s|\s$/.test(id) || /^\s|\s$/.test(pwd) ? 'あり' : 'なし');
-  infomartRequest_(client, INFOMART_LOGON_URL, { method: 'get' }); // 最初のCookieを受け取る
-  const res = infomartRequest_(client, 'https://www.infomart.co.jp/scripts/logon_check.asp?qsnkh=&qsne02=', {
-    method: 'post',
-    payload: {
-      UID: id, PWD: pwd, 'Logon.x': '10', 'Logon.y': '10',
-      URL: '', CS: '2', userlogin: '1', logon_flg: '1', tid: '', check: '', melnavi: '', lkbn: '', idauth: '', msgcode: '', _type: '',
-    },
-    headers: { Referer: INFOMART_LOGON_URL, Origin: 'https://www.infomart.co.jp' },
-  });
-  client.lastUrl = res.url;
-  client.lastHtml = res.text;
-  return client;
-}
-
-/** Cookieを引き継ぎながらリダイレクトをたどる(www と www2 などのドメインをまたぐ)。{url, code, text} を返す */
-function infomartRequest_(client, url, opts) {
-  let options = opts;
-  for (let i = 0; i < 10; i++) {
-    const res = UrlFetchApp.fetch(url, Object.assign({}, options, {
-      followRedirects: false, muteHttpExceptions: true,
-      // ブラウザと同じ種類の情報を付ける(ブラウザ以外からの送信を受け付けない作りへの備え)
-      headers: Object.assign({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'ja,en;q=0.8',
-      }, options.headers, { Cookie: Object.keys(client.jar).map(function (k) { return k + '=' + client.jar[k]; }).join('; ') }),
-    }));
-    const headers = res.getAllHeaders();
-    [].concat(headers['Set-Cookie'] || headers['set-cookie'] || []).forEach(function (c) {
-      const kv = String(c).split(';')[0];
-      const eq = kv.indexOf('=');
-      if (eq > 0) client.jar[kv.slice(0, eq).trim()] = kv.slice(eq + 1).trim();
-    });
-    const code = res.getResponseCode();
-    client.trace.push((options.method || 'get') + ' ' + url.replace(/\?.*/, '') + ' → ' + code);
-    const location = headers['Location'] || headers['location'];
-    if (code >= 300 && code < 400 && location) {
-      url = infomartResolve_(url, String(location));
-      options = { method: 'get' };
-      continue;
-    }
-    const type = String(headers['Content-Type'] || headers['content-type'] || '');
-    const charset = /utf-8/i.test(type) ? 'UTF-8' : 'Shift_JIS';
-    return { url: url, code: code, text: res.getContentText(charset) };
-  }
-  throw new Error('リダイレクトが多すぎます: ' + url);
-}
-
-function infomartResolve_(base, loc) {
-  if (/^https?:/i.test(loc)) return loc;
-  const m = base.match(/^(https?:\/\/[^/]+)(\/[^?]*)?/);
-  if (loc.charAt(0) === '/') return m[1] + loc;
-  return m[1] + (m[2] || '/').replace(/[^/]*$/, '') + loc;
-}
-
-/**
- * 調査用(1回だけ実行): ログインして、ログイン後の画面を「delipro_probe」フォルダに保存し、
- * 画面のリンクの一覧(仕入れの実績や請求書の画面を探すため)を実行ログに出す。データは変更しない
- */
-function probeInfomartAfterLogin() {
-  const lines = [];
-  const log = function (msg) { Logger.log(msg); lines.push([Utilities.formatDate(new Date(), SALES_CONFIG.TIME_ZONE, 'HH:mm:ss'), String(msg).slice(0, 45000)]); };
-  const client = infomartLogin_();
-  const html = client.lastHtml || '';
-  const it = DriveApp.getFoldersByName(SALES_CONFIG.PROBE_FOLDER);
-  const folder = it.hasNext() ? it.next() : DriveApp.createFolder(SALES_CONFIG.PROBE_FOLDER);
-  folder.createFile('page_infomart_after_login.html', html, MimeType.HTML);
-  const title = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '';
-  log('登録内容の確認: ' + client.check);
-  log('通信の経過: ' + client.trace.join(' → '));
-  log('ログイン後の画面: ' + client.lastUrl + ' / タイトル: ' + title.replace(/\s+/g, ' ').trim());
-  log('ログイン画面に戻された気配: ' + (/name=["']?PWD/i.test(html) ? 'あり(ログイン失敗の可能性)' : 'なし'));
-  log('本人確認(認証コードなど)の気配: ' + (/認証コード|ワンタイム|確認コード|本人確認/.test(html) ? 'あり' : 'なし'));
-  // ログイン画面に戻された場合の手がかり: 隠し項目の値と、エラーらしい文
-  const hidden = (html.match(/<input[^>]*type=["']?hidden[^>]*>/gi) || []).map(function (t) {
-    const n = (t.match(/name=["']?([^"'\s>]+)/i) || [])[1], v = (t.match(/value=["']([^"']*)["']/i) || [])[1];
-    return n + '=' + (v || '');
-  });
-  log('隠し項目: ' + hidden.join(', '));
-  const text = html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, '\n');
-  const msgs = text.split('\n').map(function (x) { return x.trim(); })
-    .filter(function (x) { return x && /エラー|誤り|正しく|一致|ロック|失敗|無効|入力してください|できません/.test(x); });
-  log('エラーらしい文: ' + (msgs.slice(0, 10).join(' / ') || 'なし'));
-  const links = [];
-  const re = /<a[^>]*href=["']([^"'#][^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
-  let m;
-  while ((m = re.exec(html)) !== null && links.length < 80) {
-    const text = m[2].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-    if (text) links.push(text + ' → ' + m[1].replace(/&amp;/g, '&'));
-  }
-  log('リンク(' + links.length + '件):\n' + links.join('\n'));
-  log('保存先: ' + folder.getUrl());
-  // 実行ログは上の行が隠れて読みにくいため、集計用スプレッドシートの「インフォマート調査」シートにも書く
-  const ss = openSalesSpreadsheet_();
-  const sh = ss.getSheetByName('インフォマート調査') || ss.insertSheet('インフォマート調査');
-  sh.clear();
-  sh.getRange(1, 1, lines.length, 2).setValues(lines);
-}
-
-/**
- * 調査用(1回だけ実行): ログイン画面が読み込んでいる処理のファイル(ログインボタンを押したときの checkNewLogonForm など)を
- * 集計用スプレッドシートの「インフォマート調査」シートに書き出す。パスワードは使わず、ログインもしない
- */
-function probeInfomartScripts() {
-  const files = ['/include/logon.js?4', '/web/jp/js/logon-idcheck.js?4', '/web/jp/js/controls_common.js?4'];
-  const rows = [];
-  files.forEach(function (path) {
-    const res = UrlFetchApp.fetch('https://www.infomart.co.jp' + path, { muteHttpExceptions: true });
-    const type = String(res.getHeaders()['Content-Type'] || '');
-    const text = res.getContentText(/utf-8/i.test(type) ? 'UTF-8' : 'Shift_JIS');
-    rows.push([path, 'HTTP ' + res.getResponseCode() + ' / ' + text.length + '文字']);
-    for (let i = 0; i < text.length; i += 40000) rows.push([path + ' #' + (i / 40000 + 1), "'" + text.slice(i, i + 40000)]);
-  });
-  const ss = openSalesSpreadsheet_();
-  const sh = ss.getSheetByName('インフォマート調査') || ss.insertSheet('インフォマート調査');
-  sh.clear();
-  sh.getRange(1, 1, rows.length, 2).setValues(rows);
-  Logger.log('「インフォマート調査」シートに書き出しました: ' + rows.length + '行');
-}
-
-/**
- * 調査用(1回だけ実行): ログインしていないときのログイン画面にも「エラーらしい文」が最初から書かれているかを調べ、
- * 「インフォマート調査」シートに書き出す。パスワードは使わず、ログインもしない
- */
-function probeInfomartLogonText() {
-  const res = UrlFetchApp.fetch(INFOMART_LOGON_URL, { muteHttpExceptions: true });
-  const html = res.getContentText('Shift_JIS');
-  const text = html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, '\n');
-  const msgs = text.split('\n').map(function (x) { return x.trim(); })
-    .filter(function (x) { return x && /エラー|誤り|正しく|一致|ロック|失敗|無効|入力してください|できません/.test(x); });
-  const rows = [['ログイン前の画面のエラーらしい文', msgs.join(' / ') || 'なし']];
-  const ss = openSalesSpreadsheet_();
-  const sh = ss.getSheetByName('インフォマート調査') || ss.insertSheet('インフォマート調査');
-  sh.clear();
-  sh.getRange(1, 1, rows.length, 2).setValues(rows);
-  Logger.log(rows[0].join(': '));
 }

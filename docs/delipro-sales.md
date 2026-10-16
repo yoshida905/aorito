@@ -77,9 +77,32 @@ PLの入力欄(支払区分・10%/8%/0%対象。南海は計(税抜)も)のR・T
   (ダウンロード / 明細DL / 発注書DL)をマイドライブの「delipro_probe」フォルダに保存します。
   メールは送らず、デリプロのデータも変更しません。
 
+## インフォマートの仕入れ(PLの食材費・資材費)
+
+インフォマートへの自動ログインはできなかったため、月1回、CSVをフォルダに置く方式です。
+
+1. インフォマートで前月分の仕入れのCSVをダウンロードする(列名ありの形式)
+2. マイドライブの「infomart_csv」フォルダに置く(初回の実行で自動で作られる。別のフォルダを使うときは、
+   スクリプトプロパティ `INFOMART_FOLDER_ID` にフォルダのIDを書く)
+3. 翌朝の自動実行で取り込まれ、結果がメールで届く。すぐに入れたいときは `importInfomartCsv` を実行する
+
+決まり(Config.gs の `INFOMART`):
+
+- 金額は伝票の［総合計］。計上月は［伝票日付］の月
+- 取引先の行が片方の事業所にしかなければ、その事業所(例: 源氏・シンポフーズは南海、三和物産は関西)
+- 広栄・日本食研・ベジプラスは両方に行があるため、［自社担当者］で分ける(吉田裕紀=関西、花川瑞紀=南海)
+- タムラ容器・日本パッケージは関西の資材費、iReneは関西の「食材費(社内卸)本町SB」
+- 例外は集計用スプレッドシートの「インフォマート振替」シートに、伝票Noと振替先(関西 / 南海 / 除外)を書く
+- 割り当てがない取引先の伝票は「仕入_yyyy-MM」シートの下に黄色で出て、メールにも載る。
+  Config.gs の `SUPPLIERS` に足してから再実行する(同じ伝票は1回だけ数えるので、何度実行してもよい)
+
+書き込み先は集計用スプレッドシートの転記用シート(PLと同じシート名・同じセル番地)です。
+PLの側は、売上欄と同じく IMPORTRANGE で参照します。PLの手入力との照合は `compareInfomartMonth`
+(スクリプトプロパティ `COMPARE_MONTH` の月)で、結果は「仕入照合_yyyy-MM」シートに出ます。
+
 ## ファイル構成
 
-`gas/delipro-sales/` の `Config.gs`・`SalesParser.gs`・`TaxParser.gs`・`PlLayout.gs`・`SalesSummary.gs`・`SalesSheet.gs`・`PlExport.gs`・`DeliListParser.gs`・`DeliproClient.gs`・`CsvProbe.gs` を
+`gas/delipro-sales/` の `Config.gs`・`SalesParser.gs`・`TaxParser.gs`・`PlLayout.gs`・`SalesSummary.gs`・`SalesSheet.gs`・`PlExport.gs`・`InfomartParser.gs`・`InfomartImport.gs`・`DeliListParser.gs`・`DeliproClient.gs`・`CsvProbe.gs` を
 1つにまとめたものが `dist/delipro-sales.gs` です。デリプロへのログインと検索の部分は
 キッチン指示書メールと同じ内容です。
 
