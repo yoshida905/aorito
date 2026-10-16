@@ -69,6 +69,13 @@ plSummary.tax = { 東京直販: { total: 115000, exTax: 104630, r10: 110000, r8:
 const pc = buildPlCells_(plSummary, [{ sheet: 'PL_東京', blocks: [{ type: '東京直販', rows: { 現金: 3, 請求書: 5, r10: 6, r8: 7, ex: 8 } }] }]);
 assert.deepStrictEqual(pc.cells.map(c => [c.row, c.value]), [[3, 0], [5, 110000], [6, 110000], [7, 5000], [8, 104630]]);
 assert.deepStrictEqual(pc.unmapped, [{ type: '東京直販', item: '未定', amount: 5000 }, { type: '愛媛', item: '合計', amount: 7000 }]);
+const nankai = summarizeOrders_(
+  [{ odid: '1', payment: '請求書', amount: 100000 }, { odid: '2', payment: '未定', amount: 39500 }],
+  { 1: '大阪南海', 2: '大阪南海' }, ['大阪南海'], ['請求書', '未定']);
+nankai.tax = { 大阪南海: { total: 139500, exTax: 129166, r10: 0, r8: 139500, r0: 0 } };
+const pn = buildPlCells_(nankai, [{ sheet: 'PL_南海', blocks: [{ type: '大阪南海', rows: { 請求書: 25, 未定: 25, r8: 26, ex: 27 } }] }]);
+assert.deepStrictEqual(pn.cells.map(c => [c.row, c.value]), [[25, 139500], [26, 139500], [27, 129166]]);
+assert.deepStrictEqual(pn.unmapped, []);
 console.log('pl layout tests passed');
 
 // 売上分析(期間)の画面で選ばれている検索条件の読み取り

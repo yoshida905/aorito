@@ -44,7 +44,8 @@ const SALES_CONFIG = {
       { type: '大阪ごちクル', rows: { 現金: 18, クレジットカード: 19, 請求書: 20, ごちくる代理請求: 21, r10: 22, r8: 23, ex: 24 } },
     ] },
     { sheet: 'PL_南海(グラン天空)', blocks: [
-      { type: '大阪南海', rows: { 請求書: 25, r8: 26, ex: 27 } },
+      // 南海のPLには「未定」の欄がないため、請求書の欄に含める(2026/8・9月の手入力と同じ扱い)
+      { type: '大阪南海', rows: { 請求書: 25, 未定: 25, r8: 26, ex: 27 } },
     ] },
     { sheet: 'PL_Mr.BUFFET_東京', blocks: [
       { type: '東京直販', rows: { 現金: 3, クレジットカード: 4, 請求書: 5, r10: 6, r8: 7, ex: 8 } },
@@ -248,12 +249,14 @@ function plColumnOf_(ym, firstMonth, firstColumn) {
 
 /**
  * @param summary summarizeOrders_ の結果(tax 付き)
+ * 同じ行番号を複数の項目に書いたときは、その行に合計を置く(例: 南海は「未定」も請求書の行に入れる)
  * @return {{cells:{sheet:string,row:number,value:number}[], unmapped:{type:string,item:string,amount:number}[]}}
  *   unmapped はPLに置き場所がない金額(例: 東京直販の「未定」)。PLに載らず漏れるので知らせる
  */
 function buildPlCells_(summary, layout) {
   const cells = [], unmapped = [];
   const placed = {};
+  const at = {}; // 同じセルに複数の項目を割り当てたとき(例: 南海の請求書と未定)は足し合わせる
   layout.forEach(function (sh) {
     sh.blocks.forEach(function (b) {
       placed[b.type] = true;
@@ -261,7 +264,10 @@ function buildPlCells_(summary, layout) {
       const tx = (summary.tax && summary.tax[b.type]) || { r10: 0, r8: 0, r0: 0, exTax: 0 };
       Object.keys(b.rows).forEach(function (key) {
         const value = key === 'ex' ? tx.exTax : /^r(10|8|0)$/.test(key) ? tx[key] : (c[key] || 0);
-        cells.push({ sheet: sh.sheet, row: b.rows[key], value: value });
+        const k = sh.sheet + '!' + b.rows[key];
+        if (k in at) { at[k].value += value; return; }
+        at[k] = { sheet: sh.sheet, row: b.rows[key], value: value };
+        cells.push(at[k]);
       });
       Object.keys(c).forEach(function (p) {
         if (!(p in b.rows) && c[p]) unmapped.push({ type: b.type, item: p, amount: c[p] });
