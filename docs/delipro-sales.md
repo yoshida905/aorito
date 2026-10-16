@@ -102,6 +102,10 @@ PLの入力欄(支払区分・10%/8%/0%対象。南海は計(税抜)も)のR・T
 PLの側は、売上欄と同じく IMPORTRANGE で参照します。PLの手入力との照合は `compareInfomartMonth`
 (スクリプトプロパティ `COMPARE_MONTH` の月)で、結果は「仕入照合_yyyy-MM」シートに出ます。
 
+PLの欄を自動に切り替えるときは、スクリプトプロパティ `LINK_FROM_MONTH`(例: 2026-10)を書いて
+`linkPlInfomartFormulas` を1回実行します。`INFOMART.LINK_SITES` の事業所の欄に、その月から年度末まで
+IMPORTRANGE の式が入ります。前の内容は「PL修正記録」に残ります。
+
 ## ファイル構成
 
 `gas/delipro-sales/` の `Config.gs`・`SalesParser.gs`・`TaxParser.gs`・`PlLayout.gs`・`SalesSummary.gs`・`SalesSheet.gs`・`PlExport.gs`・`InfomartParser.gs`・`InfomartImport.gs`・`DeliListParser.gs`・`DeliproClient.gs`・`CsvProbe.gs` を

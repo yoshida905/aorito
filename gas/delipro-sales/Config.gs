@@ -74,6 +74,8 @@ const SALES_CONFIG = {
     FOLDER: 'infomart_csv', // CSVを置くマイドライブのフォルダ(スクリプトプロパティ INFOMART_FOLDER_ID があればそちら)。
     // インフォマートのCSVでないもの(見出しに［データ区分］がない)は読み飛ばす
     SITES: { 関西: 'PL_Mr.BUFFET_関西', 南海: 'PL_南海(グラン天空)' },
+    // linkPlInfomartFormulas でPLの欄を自動(IMPORTRANGE)に切り替える事業所。南海は手入力との差の原因が分かってから足す
+    LINK_SITES: ['関西'],
     PERSONS: { 吉田裕紀: '関西', 花川瑞紀: '南海' }, // 名前の空白は無視して照合する
     SUPPLIERS: [
       { match: '広栄', item: '広栄', rows: { 関西: 66, 南海: 66 } },

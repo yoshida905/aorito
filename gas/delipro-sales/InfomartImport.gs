@@ -196,3 +196,53 @@ function compareInfomartMonth() {
   out.forEach(function (row, i) { if (i && row[5] !== 0) sh.getRange(i + 1, 6).setBackground('#f4cccc'); });
   Logger.log(ym + ': 差のある行 ' + out.filter(function (x, i) { return i && x[5] !== 0; }).length + '件。' + ss.getUrl() + ' の「' + name + '」');
 }
+
+/**
+ * PLの食材費・資材費の欄に、集計用スプレッドシートの同じセルを参照する IMPORTRANGE の式を入れる(手動実行。1回でよい)。
+ * 対象は INFOMART.LINK_SITES の事業所の、SUPPLIERS に書いた行。月はスクリプトプロパティ LINK_FROM_MONTH(例: 2026-10)から
+ * PLの年度の最後の月まで。ほかの式が入っているセルは書き換えずに知らせる。書き換えたセルの前の内容は「PL修正記録」に残す
+ */
+function linkPlInfomartFormulas() {
+  const cfg = SALES_CONFIG.INFOMART;
+  const props = PropertiesService.getScriptProperties();
+  const plId = props.getProperty('PL_SHEET_ID');
+  if (!plId) throw new Error('スクリプトプロパティ PL_SHEET_ID にPLのスプレッドシートIDを登録してください');
+  const from = props.getProperty('LINK_FROM_MONTH');
+  if (!/^\d{4}-\d{2}$/.test(from || '')) throw new Error('スクリプトプロパティ LINK_FROM_MONTH に、式に切り替える最初の月(例: 2026-10)を書いてください');
+  const ss = openSalesSpreadsheet_();
+  const pl = SpreadsheetApp.openById(plId);
+  const now = Utilities.formatDate(new Date(), SALES_CONFIG.TIME_ZONE, 'yyyy/MM/dd HH:mm');
+  const log = [], skipped = [];
+  // 年度の最後の月(PL_FIRST_MONTH の前の月)まで
+  const months = [];
+  for (let y = Number(from.slice(0, 4)), m = Number(from.slice(5, 7)); ; m++) {
+    if (m > 12) { m = 1; y++; }
+    months.push(y + '-' + ('0' + m).slice(-2));
+    if (m === (SALES_CONFIG.PL_FIRST_MONTH + 10) % 12 + 1) break;
+  }
+  cfg.LINK_SITES.forEach(function (site) {
+    const name = cfg.SITES[site];
+    const sh = pl.getSheetByName(name);
+    if (!sh) throw new Error('PLに「' + name + '」シートがありません');
+    cfg.SUPPLIERS.forEach(function (x) {
+      if (!(site in x.rows)) return;
+      months.forEach(function (ym) {
+        const cell = sh.getRange(x.rows[site], plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN));
+        const a1 = cell.getA1Notation();
+        const next = '=IMPORTRANGE("' + ss.getId() + '","\'' + name + '\'!' + a1 + '")';
+        const f = cell.getFormula();
+        if (f === next) return;
+        if (f && !/^=IMPORTRANGE\(/i.test(f)) { skipped.push(name + '!' + a1 + ' ' + f); return; }
+        log.push([now, name, a1, "'" + (f || cell.getValue()), "'" + next]);
+        cell.setFormula(next);
+      });
+    });
+  });
+  if (log.length) {
+    const s = ss.getSheetByName('PL修正記録') || ss.insertSheet('PL修正記録');
+    if (s.getLastRow() === 0) s.getRange(1, 1, 1, 5).setValues([['日時', 'シート', 'セル', '修正前', '修正後']]);
+    s.getRange(s.getLastRow() + 1, 1, log.length, 5).setValues(log);
+  }
+  Logger.log('式を入れたセル: ' + log.length + '件(' + months[0] + '〜' + months[months.length - 1] + ')。記録は「PL修正記録」');
+  if (skipped.length) Logger.log('ほかの式が入っていたため、そのままにしたセル:\n' + skipped.join('\n'));
+}
