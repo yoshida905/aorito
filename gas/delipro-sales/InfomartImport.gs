@@ -15,7 +15,7 @@ function importInfomartCsv() {
     Logger.log('フォルダ「' + infomartFolder_().getName() + '」にCSVがありません');
     return { months: [], unmapped: [] };
   }
-  const slips = readInfomartSlips_(files);
+  const slips = readInfomartSlips_(files).concat(readOutsideEntries_());
   const r = assignInfomartSlips_(slips, cfg, readInfomartTransfers_());
   const ss = openSalesSpreadsheet_();
   const months = {};
@@ -66,6 +66,31 @@ function writeInfomartDetail_(ss, ym, r) {
   sh.getRange(at - 1, 1).setValue('■ PLに入っていない伝票(Config.gs の SUPPLIERS に足すか、「インフォマート振替」シートに書く)').setFontWeight('bold');
   sh.getRange(at, 1, m.length, m[0].length).setValues(m).setBackground('#fff2cc');
   sh.getRange(at, 1, 1, m[0].length).setFontWeight('bold');
+}
+
+/**
+ * 「仕入_インフォマート外」シート(なければ作る)を読む。インフォマートを通さずに直接発注した分(例: タムラ容器)を
+ * 1行に1件、A列 月(2026-09)、B列 事業所(関西/南海)、C列 取引先(Config.gs の SUPPLIERS の名前)、D列 金額(税抜) で書く。
+ * インフォマートの伝票と同じ行に足し合わせる
+ */
+function readOutsideEntries_() {
+  const ss = openSalesSpreadsheet_();
+  let sh = ss.getSheetByName('仕入_インフォマート外');
+  if (!sh) {
+    sh = ss.insertSheet('仕入_インフォマート外');
+    sh.getRange(1, 1, 1, 5).setValues([['月(2026-09)', '事業所(関西/南海)', '取引先', '金額(税抜)', 'メモ']]).setFontWeight('bold');
+    sh.getRange('A:A').setNumberFormat('@');
+    return [];
+  }
+  return sh.getDataRange().getValues().slice(1).map(function (r, i) {
+    const ym = r[0] instanceof Date ? Utilities.formatDate(r[0], SALES_CONFIG.TIME_ZONE, 'yyyy-MM') : String(r[0]).trim().replace('/', '-');
+    const site = String(r[1]).trim();
+    if (!ym && !site && !r[2] && !r[3]) return null;
+    if (!/^\d{4}-\d{2}$/.test(ym)) throw new Error('「仕入_インフォマート外」' + (i + 2) + '行目の月は 2026-09 の形で書いてください: ' + r[0]);
+    if (['関西', '南海'].indexOf(site) === -1) throw new Error('「仕入_インフォマート外」' + (i + 2) + '行目の事業所は 関西 か 南海 にしてください: ' + site);
+    return { id: 'outside:' + (i + 2), no: 'インフォマート外' + (i + 2) + '行目', date: ym, ym: ym, person: '', site: site,
+      supplier: String(r[2]), amount: Number(r[3]) || 0 };
+  }).filter(Boolean);
 }
 
 /** 「インフォマート振替」シート(なければ作る)を読む。A列 伝票No、C列 振替先(関西 / 南海 / 除外) */
@@ -146,7 +171,7 @@ function compareInfomartMonth() {
     || Utilities.formatDate(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1), SALES_CONFIG.TIME_ZONE, 'yyyy-MM');
   const plId = props.getProperty('PL_SHEET_ID');
   if (!plId) throw new Error('スクリプトプロパティ PL_SHEET_ID にPLのスプレッドシートIDを登録してください');
-  const slips = readInfomartSlips_(infomartCsvFiles_());
+  const slips = readInfomartSlips_(infomartCsvFiles_()).concat(readOutsideEntries_());
   const r = assignInfomartSlips_(slips.filter(function (s) { return s.ym === ym; }), cfg, readInfomartTransfers_());
   const col = plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN);
   const pl = SpreadsheetApp.openById(plId);

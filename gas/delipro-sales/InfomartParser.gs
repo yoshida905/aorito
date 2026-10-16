@@ -33,7 +33,8 @@ function parseInfomartCsv_(text) {
 
 /**
  * 伝票を、月×事業所×PLの行に集計する
- * @param slips parseInfomartCsv_ の結果(複数ファイル分を足してよい。取引IDが同じ伝票は1回だけ数える)
+ * @param slips parseInfomartCsv_ の結果(複数ファイル分を足してよい。取引IDが同じ伝票は1回だけ数える)。
+ *   site を持つもの(インフォマート外の手入力)は、その事業所に入れる
  * @param transfers { 伝票No: '関西' | '南海' | '除外' }
  * @return {{cells:{ym,sheet,row,value}[], lines:{ym,site,item,row,count,amount,how}[], unmapped:{ym,no,date,person,supplier,amount,reason}[]}}
  */
@@ -50,12 +51,12 @@ function assignInfomartSlips_(slips, cfg, transfers) {
     const miss = function (reason) {
       unmapped.push({ ym: s.ym, no: s.no, date: s.date, person: s.person, supplier: s.supplier, amount: s.amount, reason: reason });
     };
-    const t = transfers[String(s.no)];
+    const t = s.site || transfers[String(s.no)];
     if (t === '除外') return;
     if (!sup) return miss('取引先の割り当てがない');
     const sites = Object.keys(sup.rows);
     let site, how;
-    if (t) { site = t; how = '振替'; }
+    if (t) { site = t; how = s.site ? 'インフォマート外' : '振替'; }
     else if (sites.length === 1) { site = sites[0]; how = '取引先'; }
     else { site = persons[normalizeName_(s.person)]; how = '担当者'; }
     if (!site) return miss('担当者から事業所が決まらない');
