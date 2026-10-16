@@ -15,8 +15,7 @@ function importInfomartCsv() {
     Logger.log('フォルダ「' + infomartFolder_().getName() + '」にCSVがありません');
     return { months: [], unmapped: [] };
   }
-  let slips = [];
-  files.forEach(function (f) { slips = slips.concat(parseInfomartCsv_(f.getBlob().getDataAsString('Shift_JIS'))); });
+  const slips = readInfomartSlips_(files);
   const r = assignInfomartSlips_(slips, cfg, readInfomartTransfers_());
   const ss = openSalesSpreadsheet_();
   const months = {};
@@ -99,6 +98,20 @@ function infomartFolder_() {
   return f;
 }
 
+/** CSVを読み、伝票をまとめて返す。インフォマートのCSVでないファイルは読み飛ばす */
+function readInfomartSlips_(files) {
+  let slips = [];
+  files.forEach(function (f) {
+    const text = f.getBlob().getDataAsString('Shift_JIS');
+    if (text.indexOf('［データ区分］') === -1) {
+      Logger.log('インフォマートのCSVではないため読み飛ばしました: ' + f.getName());
+      return;
+    }
+    slips = slips.concat(parseInfomartCsv_(text));
+  });
+  return slips;
+}
+
 function infomartCsvFiles_() {
   const out = [];
   const it = infomartFolder_().getFiles();
@@ -133,8 +146,7 @@ function compareInfomartMonth() {
     || Utilities.formatDate(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1), SALES_CONFIG.TIME_ZONE, 'yyyy-MM');
   const plId = props.getProperty('PL_SHEET_ID');
   if (!plId) throw new Error('スクリプトプロパティ PL_SHEET_ID にPLのスプレッドシートIDを登録してください');
-  let slips = [];
-  infomartCsvFiles_().forEach(function (f) { slips = slips.concat(parseInfomartCsv_(f.getBlob().getDataAsString('Shift_JIS'))); });
+  const slips = readInfomartSlips_(infomartCsvFiles_());
   const r = assignInfomartSlips_(slips.filter(function (s) { return s.ym === ym; }), cfg, readInfomartTransfers_());
   const col = plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN);
   const pl = SpreadsheetApp.openById(plId);
