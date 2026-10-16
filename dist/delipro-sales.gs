@@ -1054,3 +1054,24 @@ function probeInfomartAfterLogin() {
   sh.clear();
   sh.getRange(1, 1, lines.length, 2).setValues(lines);
 }
+
+/**
+ * 調査用(1回だけ実行): ログイン画面が読み込んでいる処理のファイル(ログインボタンを押したときの checkNewLogonForm など)を
+ * 集計用スプレッドシートの「インフォマート調査」シートに書き出す。パスワードは使わず、ログインもしない
+ */
+function probeInfomartScripts() {
+  const files = ['/include/logon.js?4', '/web/jp/js/logon-idcheck.js?4', '/web/jp/js/controls_common.js?4'];
+  const rows = [];
+  files.forEach(function (path) {
+    const res = UrlFetchApp.fetch('https://www.infomart.co.jp' + path, { muteHttpExceptions: true });
+    const type = String(res.getHeaders()['Content-Type'] || '');
+    const text = res.getContentText(/utf-8/i.test(type) ? 'UTF-8' : 'Shift_JIS');
+    rows.push([path, 'HTTP ' + res.getResponseCode() + ' / ' + text.length + '文字']);
+    for (let i = 0; i < text.length; i += 40000) rows.push([path + ' #' + (i / 40000 + 1), "'" + text.slice(i, i + 40000)]);
+  });
+  const ss = openSalesSpreadsheet_();
+  const sh = ss.getSheetByName('インフォマート調査') || ss.insertSheet('インフォマート調査');
+  sh.clear();
+  sh.getRange(1, 1, rows.length, 2).setValues(rows);
+  Logger.log('「インフォマート調査」シートに書き出しました: ' + rows.length + '行');
+}
