@@ -964,7 +964,7 @@ function infomartLogin_() {
   const client = { jar: {}, trace: [] };
   // パスワードの中身は出さずに、登録ミスの手がかり(文字数・前後の空白)だけを残す
   client.check = 'IDの文字数=' + id.length + ' / パスワードの文字数=' + pwd.length
-    + ' / 前後の空白=' + (/^\s|\s$/.test(id + '|') || /^\s|\s$/.test(pwd) ? 'あり' : 'なし');
+    + ' / 前後の空白=' + (/^\s|\s$/.test(id) || /^\s|\s$/.test(pwd) ? 'あり' : 'なし');
   infomartRequest_(client, INFOMART_LOGON_URL, { method: 'get' }); // 最初のCookieを受け取る
   const res = infomartRequest_(client, 'https://www.infomart.co.jp/scripts/logon_check.asp?qsnkh=&qsne02=', {
     method: 'post',
