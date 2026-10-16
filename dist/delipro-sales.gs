@@ -962,6 +962,9 @@ function infomartLogin_() {
   const id = props.getProperty('INFOMART_ID'), pwd = props.getProperty('INFOMART_PASSWORD');
   if (!id || !pwd) throw new Error('スクリプトプロパティ INFOMART_ID / INFOMART_PASSWORD を登録してください');
   const client = { jar: {}, trace: [] };
+  // パスワードの中身は出さずに、登録ミスの手がかり(文字数・前後の空白)だけを残す
+  client.check = 'IDの文字数=' + id.length + ' / パスワードの文字数=' + pwd.length
+    + ' / 前後の空白=' + (/^\s|\s$/.test(id + '|') || /^\s|\s$/.test(pwd) ? 'あり' : 'なし');
   infomartRequest_(client, INFOMART_LOGON_URL, { method: 'get' }); // 最初のCookieを受け取る
   const res = infomartRequest_(client, 'https://www.infomart.co.jp/scripts/logon_check.asp?qsnkh=&qsne02=', {
     method: 'post',
@@ -982,7 +985,12 @@ function infomartRequest_(client, url, opts) {
   for (let i = 0; i < 10; i++) {
     const res = UrlFetchApp.fetch(url, Object.assign({}, options, {
       followRedirects: false, muteHttpExceptions: true,
-      headers: Object.assign({}, options.headers, { Cookie: Object.keys(client.jar).map(function (k) { return k + '=' + client.jar[k]; }).join('; ') }),
+      // ブラウザと同じ種類の情報を付ける(ブラウザ以外からの送信を受け付けない作りへの備え)
+      headers: Object.assign({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'ja,en;q=0.8',
+      }, options.headers, { Cookie: Object.keys(client.jar).map(function (k) { return k + '=' + client.jar[k]; }).join('; ') }),
     }));
     const headers = res.getAllHeaders();
     [].concat(headers['Set-Cookie'] || headers['set-cookie'] || []).forEach(function (c) {
@@ -1025,6 +1033,7 @@ function probeInfomartAfterLogin() {
   const folder = it.hasNext() ? it.next() : DriveApp.createFolder(SALES_CONFIG.PROBE_FOLDER);
   folder.createFile('page_infomart_after_login.html', html, MimeType.HTML);
   const title = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '';
+  log('登録内容の確認: ' + client.check);
   log('通信の経過: ' + client.trace.join(' → '));
   log('ログイン後の画面: ' + client.lastUrl + ' / タイトル: ' + title.replace(/\s+/g, ' ').trim());
   log('ログイン画面に戻された気配: ' + (/name=["']?PWD/i.test(html) ? 'あり(ログイン失敗の可能性)' : 'なし'));
