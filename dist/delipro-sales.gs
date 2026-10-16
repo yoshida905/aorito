@@ -1027,6 +1027,16 @@ function probeInfomartAfterLogin() {
   Logger.log('ログイン後の画面: ' + client.lastUrl + ' / タイトル: ' + title.replace(/\s+/g, ' ').trim());
   Logger.log('ログイン画面に戻された気配: ' + (/name=["']?PWD/i.test(html) ? 'あり(ログイン失敗の可能性)' : 'なし'));
   Logger.log('本人確認(認証コードなど)の気配: ' + (/認証コード|ワンタイム|確認コード|本人確認/.test(html) ? 'あり' : 'なし'));
+  // ログイン画面に戻された場合の手がかり: 隠し項目の値と、エラーらしい文
+  const hidden = (html.match(/<input[^>]*type=["']?hidden[^>]*>/gi) || []).map(function (t) {
+    const n = (t.match(/name=["']?([^"'\s>]+)/i) || [])[1], v = (t.match(/value=["']([^"']*)["']/i) || [])[1];
+    return n + '=' + (v || '');
+  });
+  Logger.log('隠し項目: ' + hidden.join(', '));
+  const text = html.replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, '\n');
+  const msgs = text.split('\n').map(function (x) { return x.trim(); })
+    .filter(function (x) { return x && /エラー|誤り|正しく|一致|ロック|失敗|無効|入力してください|できません/.test(x); });
+  Logger.log('エラーらしい文: ' + (msgs.slice(0, 10).join(' / ') || 'なし'));
   const links = [];
   const re = /<a[^>]*href=["']([^"'#][^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let m;
