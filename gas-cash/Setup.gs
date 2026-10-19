@@ -115,7 +115,7 @@ function updateResponseSideSummary_(ss) {
     ['売上封筒(未入金)', '=' + B + 'B11'],
     ['補充が必要な額', '=' + B + 'B10'],
   ]);
-  sheet.getRange('L29').setValue('金庫を数え直したら「現金残高」のB7(数えた金額)とB14(基準日時)を更新。');
+  sheet.getRange('L29').setValue('差額は「出金(支払い)」の調整登録で合わせる。B7・B14の置き直しは売上封筒が0円のときだけ。');
   sheet.getRange('L30').setValue('処理区分の文字を書き換えると計算から外れるので注意。');
 }
 

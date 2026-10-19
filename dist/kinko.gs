@@ -243,7 +243,7 @@ function balanceSheetRows_(fundCounted, baseTime) {
     [BAL.ENVELOPE, '=' + sumAfter(K.SALE, '$B$15') + '-' + sumAfter(K.COIN, '$B$15'), '入金の日に、小銭と補充分を金庫金へ振替し、残りのお札を全部入金する'],
     [BAL.ENVELOPE_COUNT, '=COUNTIFS(' + kind + ',"' + K.SALE + '",' + ts + ',">"&$B$15)', ''],
     ['', '', ''],
-    [BAL.BASE_TIME, baseTime, 'この日時より後に登録したものだけを計算する。金庫を数え直したら、ここと数えた金額を更新'],
+    [BAL.BASE_TIME, baseTime, 'この日時より後に登録したものだけを計算する。数え直して基準を置き直すのは、売上封筒が0円のとき(入金の直後)だけにする'],
     [BAL.LAST_DEPOSIT, '=MAX($B$14,IFERROR(MAXIFS(' + ts + ',' + kind + ',"' + K.DEPOSIT + '"),0))', '自動'],
   ];
   return rows;
@@ -383,7 +383,7 @@ function updateResponseSideSummary_(ss) {
     ['売上封筒(未入金)', '=' + B + 'B11'],
     ['補充が必要な額', '=' + B + 'B10'],
   ]);
-  sheet.getRange('L29').setValue('金庫を数え直したら「現金残高」のB7(数えた金額)とB14(基準日時)を更新。');
+  sheet.getRange('L29').setValue('差額は「出金(支払い)」の調整登録で合わせる。B7・B14の置き直しは売上封筒が0円のときだけ。');
   sheet.getRange('L30').setValue('処理区分の文字を書き換えると計算から外れるので注意。');
 }
 

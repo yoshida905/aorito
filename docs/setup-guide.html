@@ -412,7 +412,7 @@ function balanceSheetRows_(fundCounted, baseTime) {
     [BAL.ENVELOPE, &#x27;=&#x27; + sumAfter(K.SALE, &#x27;$B$15&#x27;) + &#x27;-&#x27; + sumAfter(K.COIN, &#x27;$B$15&#x27;), &#x27;入金の日に、小銭と補充分を金庫金へ振替し、残りのお札を全部入金する&#x27;],
     [BAL.ENVELOPE_COUNT, &#x27;=COUNTIFS(&#x27; + kind + &#x27;,&quot;&#x27; + K.SALE + &#x27;&quot;,&#x27; + ts + &#x27;,&quot;&gt;&quot;&amp;$B$15)&#x27;, &#x27;&#x27;],
     [&#x27;&#x27;, &#x27;&#x27;, &#x27;&#x27;],
-    [BAL.BASE_TIME, baseTime, &#x27;この日時より後に登録したものだけを計算する。金庫を数え直したら、ここと数えた金額を更新&#x27;],
+    [BAL.BASE_TIME, baseTime, &#x27;この日時より後に登録したものだけを計算する。数え直して基準を置き直すのは、売上封筒が0円のとき(入金の直後)だけにする&#x27;],
     [BAL.LAST_DEPOSIT, &#x27;=MAX($B$14,IFERROR(MAXIFS(&#x27; + ts + &#x27;,&#x27; + kind + &#x27;,&quot;&#x27; + K.DEPOSIT + &#x27;&quot;),0))&#x27;, &#x27;自動&#x27;],
   ];
   return rows;
@@ -552,7 +552,7 @@ function updateResponseSideSummary_(ss) {
     [&#x27;売上封筒(未入金)&#x27;, &#x27;=&#x27; + B + &#x27;B11&#x27;],
     [&#x27;補充が必要な額&#x27;, &#x27;=&#x27; + B + &#x27;B10&#x27;],
   ]);
-  sheet.getRange(&#x27;L29&#x27;).setValue(&#x27;金庫を数え直したら「現金残高」のB7(数えた金額)とB14(基準日時)を更新。&#x27;);
+  sheet.getRange(&#x27;L29&#x27;).setValue(&#x27;差額は「出金(支払い)」の調整登録で合わせる。B7・B14の置き直しは売上封筒が0円のときだけ。&#x27;);
   sheet.getRange(&#x27;L30&#x27;).setValue(&#x27;処理区分の文字を書き換えると計算から外れるので注意。&#x27;);
 }
 

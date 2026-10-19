@@ -144,7 +144,7 @@ function balanceSheetRows_(fundCounted, baseTime) {
     [BAL.ENVELOPE, '=' + sumAfter(K.SALE, '$B$15') + '-' + sumAfter(K.COIN, '$B$15'), '入金の日に、小銭と補充分を金庫金へ振替し、残りのお札を全部入金する'],
     [BAL.ENVELOPE_COUNT, '=COUNTIFS(' + kind + ',"' + K.SALE + '",' + ts + ',">"&$B$15)', ''],
     ['', '', ''],
-    [BAL.BASE_TIME, baseTime, 'この日時より後に登録したものだけを計算する。金庫を数え直したら、ここと数えた金額を更新'],
+    [BAL.BASE_TIME, baseTime, 'この日時より後に登録したものだけを計算する。数え直して基準を置き直すのは、売上封筒が0円のとき(入金の直後)だけにする'],
     [BAL.LAST_DEPOSIT, '=MAX($B$14,IFERROR(MAXIFS(' + ts + ',' + kind + ',"' + K.DEPOSIT + '"),0))', '自動'],
   ];
   return rows;
