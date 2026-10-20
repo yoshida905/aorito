@@ -10,7 +10,7 @@ function load() {
   const src = ['Config.gs', 'Ledger.gs']
     .map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n') +
     '\n;({CASH_CONFIG, BAL, parseAmount_, parseDateTime_, formatYen_, checkDeposit_, crossedLowAlert_,' +
-    ' envelopeAges_, staffPattern_, safeCheckRow_, CHECK_HEADERS, weeklyReportLines_, balanceSheetRows_, envelopeListFormula_});';
+    ' envelopeAges_, staffPattern_, weeklyReportLines_, balanceSheetRows_, envelopeListFormula_});';
   return vm.runInNewContext(src, {});
 }
 
@@ -135,16 +135,4 @@ test('9/18の封筒の例: 売上255,000円から補充分を振替し、支払�
   assert.equal(r.salesTotal, 255000);
   assert.equal(r.bookTotal, 174000);
   assert.equal(r.diff, 0);
-});
-
-test('金庫確認の行: 帳簿を固定し、区分ごとと合計の差額を出す', () => {
-  const now = new Date(2026, 9, 19, 10, 0);
-  const row = G.safeCheckRow_(now, '吉田', '藤川',
-    { pouch: 50000, fund: 32339, envelope: 164100 }, { pouch: 50000, fund: 28009, envelope: 164100 });
-  assert.equal(row.length, G.CHECK_HEADERS.length);
-  assert.equal(G.CHECK_HEADERS[5], '差額(合計)');
-  assert.deepEqual([...row.slice(3, 6)], [246439, 242109, -4330]);
-  assert.equal(row[8], -4330);
-  assert.equal(row[11], 0);
-  assert.equal(row[14], 0);
 });
