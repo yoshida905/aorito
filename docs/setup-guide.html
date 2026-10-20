@@ -159,7 +159,7 @@
       <p class="note"><b>確認</b> 消す前の中身が <code>function myFunction() {}</code> の3行だけでなければ、消さずに止めて連絡してください。別の仕組みが入っている可能性があります。</p>
     </li>
     <li><strong>このページのコードをコピーする</strong>
-      下のボタンを押すと、仕組み全体(608行)がコピーされます。
+      下のボタンを押すと、仕組み全体(609行)がコピーされます。
       <div class="copybox">
         <div class="copyrow">
           <button class="copy" id="copyBtn" type="button">コードをコピー</button>
@@ -769,10 +769,11 @@ function readResponses_(sheet) {
     .map(function (r) { return { ts: r[0], kind: String(r[1]), amount: parseAmount_(r[3]) }; });
 }
 
+/** 件名の先頭にスプレッドシート名を付ける(大阪・東京・東海のどこから届いたか分かるように) */
 function notify_(subject, body) {
   const to = CASH_CONFIG.NOTIFY_EMAILS;
   if (!to) return;
-  MailApp.sendEmail(to, subject, body);
+  MailApp.sendEmail(to, &#x27;【&#x27; + SpreadsheetApp.getActiveSpreadsheet().getName() + &#x27;】&#x27; + subject, body);
 }
 </textarea>
         </details>

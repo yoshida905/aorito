@@ -125,8 +125,9 @@ function readResponses_(sheet) {
     .map(function (r) { return { ts: r[0], kind: String(r[1]), amount: parseAmount_(r[3]) }; });
 }
 
+/** 件名の先頭にスプレッドシート名を付ける(大阪・東京・東海のどこから届いたか分かるように) */
 function notify_(subject, body) {
   const to = CASH_CONFIG.NOTIFY_EMAILS;
   if (!to) return;
-  MailApp.sendEmail(to, subject, body);
+  MailApp.sendEmail(to, '【' + SpreadsheetApp.getActiveSpreadsheet().getName() + '】' + subject, body);
 }
