@@ -159,7 +159,7 @@
       <p class="note"><b>確認</b> 消す前の中身が <code>function myFunction() {}</code> の3行だけでなければ、消さずに止めて連絡してください。別の仕組みが入っている可能性があります。</p>
     </li>
     <li><strong>このページのコードをコピーする</strong>
-      下のボタンを押すと、仕組み全体(608行)がコピーされます。
+      下のボタンを押すと、仕組み全体(700行)がコピーされます。
       <div class="copybox">
         <div class="copyrow">
           <button class="copy" id="copyBtn" type="button">コードをコピー</button>
@@ -223,6 +223,8 @@ const CASH_CONFIG = {
     HISTORY: &#x27;入出金履歴&#x27;,
     BALANCE: &#x27;現金残高&#x27;,
     MONTHLY: &#x27;月別集計&#x27;,
+    // 週1回の金庫確認の結果(メニュー「金庫確認の結果を記録」で1行ずつ追加。本社の一覧が読む)
+    CHECK: &#x27;金庫確認&#x27;,
   },
 
   // フォーム回答シートの列(既存フォームの質問順)
@@ -432,6 +434,31 @@ function envelopeListFormula_() {
 function staffPattern_(names) {
   const escaped = names.map(function (n) { return n.replace(/[.*+?^${}()|[\]\\]/g, &#x27;\\$&amp;&#x27;); });
   return &#x27;^[\\s\u3000]*(&#x27; + escaped.join(&#x27;|&#x27;) + &#x27;)[\\s\u3000]*$&#x27;;
+}
+
+// 金庫確認シートの列(この順で書き込む。本社の一覧はA列=日時、F列=差額の合計を読む)
+const CHECK_HEADERS = [
+  &#x27;確認日時&#x27;, &#x27;数えた人&#x27;, &#x27;立会い&#x27;, &#x27;帳簿の合計&#x27;, &#x27;実際の合計&#x27;, &#x27;差額(合計)&#x27;,
+  &#x27;帳簿の金庫金&#x27;, &#x27;実際の金庫金&#x27;, &#x27;差額(金庫金)&#x27;, &#x27;帳簿の売上封筒&#x27;, &#x27;実際の売上封筒&#x27;, &#x27;差額(売上封筒)&#x27;,
+  &#x27;帳簿の釣銭ポーチ&#x27;, &#x27;実際の釣銭ポーチ&#x27;, &#x27;差額(釣銭ポーチ)&#x27;, &#x27;原因・対応&#x27;,
+];
+
+/**
+ * 金庫確認の1行を作る。帳簿は記録した瞬間の「現金残高」シートの値で固定する
+ * (あとから登録が増えても、確認した時点の差額が変わらないように)。
+ * @param {{pouch:number, fund:number, envelope:number}} book 帳簿
+ * @param {{pouch:number, fund:number, envelope:number}} actual 実際に数えた額
+ */
+function safeCheckRow_(now, counter, witness, book, actual) {
+  const bookTotal = book.pouch + book.fund + book.envelope;
+  const actualTotal = actual.pouch + actual.fund + actual.envelope;
+  return [
+    now, counter, witness, bookTotal, actualTotal, actualTotal - bookTotal,
+    book.fund, actual.fund, actual.fund - book.fund,
+    book.envelope, actual.envelope, actual.envelope - book.envelope,
+    book.pouch, actual.pouch, actual.pouch - book.pouch,
+    &#x27;&#x27;,
+  ];
 }
 
 // ===== Setup.gs =====
@@ -654,6 +681,7 @@ function installTriggers_(ss) {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu(&#x27;金庫&#x27;)
+    .addItem(&#x27;金庫確認の結果を記録&#x27;, &#x27;recordSafeCheck&#x27;)
     .addItem(&#x27;週次メールを今すぐ送る&#x27;, &#x27;sendWeeklyReport&#x27;)
     .addItem(&#x27;担当者の選択肢を反映&#x27;, &#x27;applyStaffNames&#x27;)
     .addSeparator()
@@ -719,6 +747,70 @@ function onCashFormSubmit(e) {
     Logger.log(&#x27;onCashFormSubmit failed: &#x27; + err);
     notify_(&#x27;【エラー】金庫の現金管理 自動処理&#x27;, String(err &amp;&amp; err.stack || err));
   }
+}
+
+/**
+ * 週1回の金庫確認の結果を「金庫確認」シートに記録する(メニューから実行)。
+ * 数える人が帳簿の数字に引きずられないよう、入力が終わるまで帳簿の額は見せない。
+ */
+function recordSafeCheck() {
+  const ui = SpreadsheetApp.getUi();
+  const ask = function (title, text) {
+    const r = ui.prompt(title, text, ui.ButtonSet.OK_CANCEL);
+    return r.getSelectedButton() === ui.Button.OK ? r.getResponseText().trim() : null;
+  };
+  const askAmount = function (title, text) {
+    for (;;) {
+      const v = ask(title, text);
+      if (v === null) return null;
+      const n = parseAmount_(v);
+      if (n &gt;= 0) return n;
+      ui.alert(&#x27;数字で入力してください: &#x27; + v);
+    }
+  };
+  const counter = ask(&#x27;1/5 数えた人&#x27;, &#x27;数えた人の名字を入力してください。&#x27;);
+  if (counter === null) return;
+  const witness = ask(&#x27;2/5 立会い&#x27;, &#x27;立ち会った人の名字を入力してください。&#x27;);
+  if (witness === null) return;
+  const pouch = askAmount(&#x27;3/5 釣銭ポーチ&#x27;, &#x27;ポーチ全部の合計を数字で入力してください(例: 50000)。&#x27;);
+  if (pouch === null) return;
+  const fund = askAmount(&#x27;4/5 金庫金&#x27;, &#x27;金庫金の合計を数字で入力してください。&#x27;);
+  if (fund === null) return;
+  const envelope = askAmount(&#x27;5/5 売上封筒&#x27;, &#x27;売上封筒の中身の合計を数字で入力してください(なければ 0)。&#x27;);
+  if (envelope === null) return;
+
+  SpreadsheetApp.flush();
+  const bal = readBalance_();
+  const row = safeCheckRow_(new Date(), counter, witness,
+    { pouch: bal.pouch, fund: bal.fund, envelope: bal.envelope }, { pouch: pouch, fund: fund, envelope: envelope });
+  checkSheet_().appendRow(row);
+
+  const diff = row[5];
+  const lines = [
+    &#x27;帳簿の合計 &#x27; + formatYen_(row[3]) + &#x27; / 実際の合計 &#x27; + formatYen_(row[4]) + &#x27; / 差額 &#x27; + formatYen_(diff),
+    &#x27;金庫金の差額 &#x27; + formatYen_(row[8]) + &#x27;、売上封筒の差額 &#x27; + formatYen_(row[11]) + &#x27;、釣銭ポーチの差額 &#x27; + formatYen_(row[14]),
+  ];
+  if (diff !== 0 || row[8] !== 0 || row[11] !== 0 || row[14] !== 0) {
+    notify_(&#x27;【金庫確認】差額があります &#x27; + formatYen_(diff), lines.concat([&#x27;&#x27;,
+      &#x27;「金庫確認」シートの「原因・対応」に記入し、その週のうちに原因の確認か調整の登録をしてください。&#x27;,
+      &#x27;スプレッドシート: &#x27; + SpreadsheetApp.getActiveSpreadsheet().getUrl()]).join(&#x27;\n&#x27;));
+  }
+  ui.alert(&#x27;記録しました。\n\n&#x27; + lines.join(&#x27;\n&#x27;) + (diff === 0 ? &#x27;\n\n差額はありません。&#x27; : &#x27;\n\n「金庫確認」シートの「原因・対応」に記入してください。&#x27;));
+}
+
+/** 金庫確認シート(なければ作る) */
+function checkSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(CASH_CONFIG.SHEETS.CHECK);
+  if (!sheet) {
+    sheet = ss.insertSheet(CASH_CONFIG.SHEETS.CHECK);
+    sheet.getRange(1, 1, 1, CHECK_HEADERS.length).setValues([CHECK_HEADERS]).setFontWeight(&#x27;bold&#x27;).setBackground(&#x27;#d9d9d9&#x27;);
+    sheet.setFrozenRows(1);
+    sheet.getRange(&#x27;A:A&#x27;).setNumberFormat(&#x27;yyyy/mm/dd hh:mm&#x27;);
+    sheet.getRange(&#x27;D:O&#x27;).setNumberFormat(&#x27;#,##0;[Red]-#,##0;0&#x27;);
+    sheet.setColumnWidth(16, 360);
+  }
+  return sheet;
 }
 
 /** 週1回、金庫を数える前に「あるはずの金額」をメールで知らせる */

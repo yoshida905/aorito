@@ -165,3 +165,28 @@ function staffPattern_(names) {
   const escaped = names.map(function (n) { return n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); });
   return '^[\\s\u3000]*(' + escaped.join('|') + ')[\\s\u3000]*$';
 }
+
+// 金庫確認シートの列(この順で書き込む。本社の一覧はA列=日時、F列=差額の合計を読む)
+const CHECK_HEADERS = [
+  '確認日時', '数えた人', '立会い', '帳簿の合計', '実際の合計', '差額(合計)',
+  '帳簿の金庫金', '実際の金庫金', '差額(金庫金)', '帳簿の売上封筒', '実際の売上封筒', '差額(売上封筒)',
+  '帳簿の釣銭ポーチ', '実際の釣銭ポーチ', '差額(釣銭ポーチ)', '原因・対応',
+];
+
+/**
+ * 金庫確認の1行を作る。帳簿は記録した瞬間の「現金残高」シートの値で固定する
+ * (あとから登録が増えても、確認した時点の差額が変わらないように)。
+ * @param {{pouch:number, fund:number, envelope:number}} book 帳簿
+ * @param {{pouch:number, fund:number, envelope:number}} actual 実際に数えた額
+ */
+function safeCheckRow_(now, counter, witness, book, actual) {
+  const bookTotal = book.pouch + book.fund + book.envelope;
+  const actualTotal = actual.pouch + actual.fund + actual.envelope;
+  return [
+    now, counter, witness, bookTotal, actualTotal, actualTotal - bookTotal,
+    book.fund, actual.fund, actual.fund - book.fund,
+    book.envelope, actual.envelope, actual.envelope - book.envelope,
+    book.pouch, actual.pouch, actual.pouch - book.pouch,
+    '',
+  ];
+}
