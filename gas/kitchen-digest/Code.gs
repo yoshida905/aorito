@@ -117,6 +117,24 @@ function runKitchenDigest_(office, mailTo) {
       ? [deliproKitchenPdf_(client, main.map(function (o) { return o.number; }), 'kitchen_' + stamp + '.pdf')]
       : [];
 
+    // 集配一覧PDFの配車欄から、配車(○号車)・出発時間・配達スタッフを付け合わせる
+    if (main.length) {
+      try {
+        const sheet = parseDeliSheetText_(extractPdfText_(
+          deliproDeliSheetPdf_(client, main.map(function (o) { return o.number; })).getBytes()));
+        main.forEach(function (o) {
+          const d = sheet[o.number];
+          if (!d) return;
+          o.car = d.car;
+          o.depart = d.depart;
+          if (!o.staff) o.staff = d.staff;
+        });
+      } catch (e) {
+        // 配車が取れなくてもメール自体は送る
+        Logger.log('集配一覧PDFの読み取りに失敗: ' + e);
+      }
+    }
+
     // 日別売上(税込・確定/保留別)
     const days = [];
     for (let d = today; d <= end; d = kAddDays_(d, 1)) days.push(d);
@@ -189,15 +207,13 @@ function buildKitchenMail_(today, end, orders, ahead, title, sales) {
     const day = orders.filter(function (o) { return o.date === d; });
     h.push('<h4 style="margin:12px 0 4px">' + kEsc_(kFormatJa_(d)) + ' ' + day.length + '件' +
       (day.length ? '(' + people(day) + '名)' : '') + salesText_(sales && sales[d]) + '</h4>');
-    const staffLine = staffSummary_(day);
-    if (staffLine) h.push('<p style="margin:0 0 4px;font-size:12px;color:#555">配送: ' + kEsc_(staffLine) + '</p>');
     h.push(day.length ? kitchenTable_(day, today, false) : '<p style="color:#888;margin:0">注文なし</p>');
   }
   h.push('<p style="color:#888;font-size:12px">人数はキッチン指示書のプラン・料理の数量からの推定です。卸(プリン・パンなど)は人数に含めません。</p>');
   h.push('</div>');
 
   const text = [subject, ''].concat(orders.map(function (o) {
-    return [kFormatJa_(o.date), o.time, o.staff ? '配送:' + o.staff : '', 'No.' + o.number, o.status, o.isLarge ? '【大型】' : '', o.client,
+    return [kFormatJa_(o.date), o.time, o.staff ? '配送:' + o.staff : '', o.depart ? '発' + o.depart : '', 'No.' + o.number, o.status, o.isLarge ? '【大型】' : '', o.client,
       o.wholesale ? '卸' : (o.headcount || '?') + '名', planText_(o)].join(' ');
   })).join('\n');
 
@@ -207,7 +223,7 @@ function buildKitchenMail_(today, end, orders, ahead, title, sales) {
 function kitchenTable_(orders, today, showDaysLeft, showDeadline) {
   const th = 'style="border:1px solid #ccc;padding:4px 6px;background:#f2f2f2;text-align:left;white-space:nowrap"';
   const td = 'style="border:1px solid #ccc;padding:4px 6px;vertical-align:top"';
-  const heads = ['日付', '時間', '配送', 'No.', '状態', '人数', 'お客様', 'プラン', 'お届け先'];
+  const heads = ['日付', '時間', '配送', '配車・出発', 'No.', '状態', '人数', 'お客様', 'プラン', 'お届け先'];
   if (showDaysLeft) heads.splice(1, 0, 'あと');
   if (showDeadline) heads.splice(1, 0, '受注締切');
   const rows = orders.map(function (o) {
@@ -215,6 +231,7 @@ function kitchenTable_(orders, today, showDaysLeft, showDeadline) {
       kEsc_(kFormatJa_(o.date)),
       kEsc_(o.time || '-'),
       kEsc_(o.staff || '未定'),
+      kEsc_([o.car, o.depart ? '発 ' + o.depart : ''].filter(Boolean).join(' ') || '-'),
       kEsc_(o.number),
       isHighlightedPending_(o) ? '<b style="color:#b26a00">保留</b>' : kEsc_(o.status),
       (o.isLarge ? '<b style="color:#b00020">' : '') + kEsc_(o.wholesale ? '卸' : o.headcount ? o.headcount + '名' : '-') + (o.isLarge ? '</b>' : ''),
@@ -266,19 +283,6 @@ function salesText_(s) {
   const total = s.confirmed + s.pending;
   if (!total) return ' 売上¥0';
   return ' 売上' + yenK_(total) + (s.pending ? '(確定' + yenK_(s.confirmed) + '・保留' + yenK_(s.pending) + ')' : '');
-}
-
-/** その日の配送員ごとの件数「花川2件・山口1件・未定3件」。最初のお届け時間順 */
-function staffSummary_(dayOrders) {
-  const map = {};
-  const order = [];
-  dayOrders.forEach(function (o) {
-    String(o.staff || '未定').split(/[、,，\s]+/).filter(Boolean).forEach(function (name) {
-      if (!map[name]) { map[name] = 0; order.push(name); }
-      map[name]++;
-    });
-  });
-  return order.map(function (n) { return n + map[n] + '件'; }).join('・');
 }
 
 function yenK_(n) {

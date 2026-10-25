@@ -112,3 +112,35 @@ function inferYear_(month, day, todayYmd) {
   if (month < p[1] - 6) year++;
   return year + '-' + ('0' + month).slice(-2) + '-' + ('0' + day).slice(-2);
 }
+
+/**
+ * デリプロ「集配一覧PDF」のテキストから、注文番号ごとの配車(○号車)・出発時間(発 HH:MM)・配達スタッフを読む。
+ * PDFの1行=1つの文字列ブロック。注文番号の行から次の注文番号の行までを1件とみなす。
+ * @return {Object<string, {car:string, depart:string, staff:string}>}
+ */
+function parseDeliSheetText_(rawText) {
+  const lines = String(rawText || '').split('\n').map(function (l) { return l.replace(/\s+/g, ' ').trim(); });
+  const result = {};
+  const starts = [];
+  lines.forEach(function (l, i) {
+    // 注文番号だけの行で、すぐ後(または同じ行)に配達日が続くものを1件の始まりとする
+    const m = l.match(/^(\d{3,6})(?:\s+□)?$/);
+    if (m && /\d{4}\/\d{1,2}\/\d{1,2}/.test(lines.slice(i + 1, i + 4).join(' '))) starts.push({ i: i, no: m[1] });
+  });
+  starts.forEach(function (st, k) {
+    const block = lines.slice(st.i + 1, k + 1 < starts.length ? starts[k + 1].i : lines.length);
+    const text = block.join(' ');
+    const car = text.match(/(\d+)\s*号車/);
+    const depart = text.match(/発\s*(\d{1,2}[:：]\d{2})/);
+    // 配達日時の後ろ(時刻の次)にある、号車・発・電話番号・住所ではない短い語を配達スタッフとみなす
+    let staff = '';
+    const dt = text.match(/\d{4}\/\d{1,2}\/\d{1,2}(?:\s+\d{1,2}:\d{2})?\s+([^\s□]+)/);
+    if (dt && !/号車|^発$|^\d|株式会社|様$/.test(dt[1])) staff = dt[1];
+    result[st.no] = {
+      car: car ? car[1] + '号車' : '',
+      depart: depart ? depart[1].replace('：', ':') : '',
+      staff: staff,
+    };
+  });
+  return result;
+}

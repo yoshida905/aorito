@@ -178,9 +178,22 @@ test('日別一覧に売上と配送員が出る', () => {
   const sales = { '2026-10-11': { confirmed: 2776235, pending: 120000 }, '2026-10-12': { confirmed: 0, pending: 0 } };
   const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-12', [mk('1', '花川', '2026-10-11'), mk('2', '大岡、花川', '2026-10-11'), mk('3', '', '2026-10-11')], [], '大阪キッチン指示書', sales);
   assert.ok(mail.html.includes('売上¥2,896,235(確定¥2,776,235・保留¥120,000)'));
-  assert.ok(mail.html.includes('配送: 花川2件・大岡1件・未定1件'));
+  assert.ok(mail.html.includes('>大岡、花川</td>'));
+  assert.ok(mail.html.includes('>未定</td>'));
   assert.ok(mail.html.includes('売上(税込) ¥2,896,235'));
   assert.ok(mail.html.includes(' 売上¥0'));
+});
+
+
+test('集配一覧PDFの配車欄から号車・出発時間・配達スタッフを読める', () => {
+  const t = ['集配一覧', 'No', '配達日時', '配車', 'お届け先', '住所', '注文内容',
+    '4373', '□', '2026/10/26', '08:30', 'RISE', '5号車', '発 08:20', 'サンプル電鉄株式会社', '06-0000-0000', '大阪市中央区', 'サンプル弁当×17 他',
+    '4342', '□', '2026/10/26', '09:30', '山下', '1号車', '発 09:20', 'サンプル電鉄株式会社',
+    '4400', '2026/10/27', '株式会社サンプル', '大阪市北区'].join('\n');
+  const r = ctx.parseDeliSheetText_(t);
+  assert.strictEqual(JSON.stringify(r['4373']), JSON.stringify({ car: '5号車', depart: '08:20', staff: 'RISE' }));
+  assert.strictEqual(JSON.stringify(r['4342']), JSON.stringify({ car: '1号車', depart: '09:20', staff: '山下' }));
+  assert.strictEqual(JSON.stringify(r['4400']), JSON.stringify({ car: '', depart: '', staff: '' }));
 });
 
 console.log(passed + ' tests passed');
