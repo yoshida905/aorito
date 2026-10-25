@@ -90,7 +90,10 @@ function estimateKitchenHeadcount_(plans, details) {
     if (n > 0 && (max === null || n > max)) max = n;
   };
   (plans || []).forEach(function (p) {
-    if (!excluded.test(p.name)) take(p.qty);
+    if (excluded.test(p.name)) return;
+    // 「ジャーマンソーセージ10人前×1」のような大皿は 人前×数量
+    const serving = p.name.match(/(\d+)\s*人前/);
+    take(serving ? Number(serving[1]) * p.qty : p.qty);
   });
 
   const text = String(details || '');

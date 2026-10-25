@@ -103,6 +103,11 @@ function runKitchenDigest_(office, mailTo) {
         staff: l.staff || '', orderType: l.orderType || '', car: l.car || '', depart: l.depart || '' });
     });
     orders.forEach(function (o) {
+      // キッチン指示書に「(卸)」がなくても、デリプロの注文区分が「東海卸」などの卸なら人数に数えない
+      if (/卸/.test(o.orderType || '')) {
+        o.wholesale = true;
+        o.headcount = null;
+      }
       o.isLarge = o.headcount !== null && o.headcount >= cfg.LARGE_HEADCOUNT;
     });
     orders.sort(function (a, b) {

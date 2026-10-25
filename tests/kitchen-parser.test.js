@@ -193,4 +193,9 @@ test('新しい集配管理画面から配達日時・配達スタッフ・配�
   assert.strictEqual(JSON.stringify(r.orders[1]), JSON.stringify({ odid: '4420', status: '確定', date: '2026-10-25', time: '14:00', office: '大阪事業所', staff: '', orderType: '大阪直販', car: '', depart: '' }));
 });
 
+
+test('プラン名の「10人前×1」は10名と数える', () => {
+  assert.strictEqual(ctx.estimateKitchenHeadcount_([{ name: '(H)(ごち)定番握り寿司LL 60貫', qty: 1 }, { name: '(H)(ごち)ジャーマンソーセージとサイコロポテト10人前', qty: 1 }], ''), 10);
+});
+
 console.log(passed + ' tests passed');
