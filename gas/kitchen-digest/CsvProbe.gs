@@ -44,3 +44,19 @@ function probeDeliSheet() {
     JSON.stringify(parseDeliSheetText_(text), null, 1));
   Logger.log('保存先: ' + folder.getUrl());
 }
+
+/**
+ * 調査用(1回だけ実行): 新しくなった集配管理の画面(今日〜7日先・大阪)のHTMLを
+ * 「delipro_probe」フォルダにテキストで保存する。配達スタッフ・配車・出発日時の読み取り方の確認に使う。
+ */
+function probeDeliList() {
+  const cfg = KITCHEN_CONFIG;
+  const today = Utilities.formatDate(new Date(), cfg.TIME_ZONE, 'yyyy-MM-dd');
+  const client = deliproLogin_();
+  const payload = deliproSearchPayload_(today, kAddDays_(today, cfg.DAYS_AHEAD), '0', cfg.OFFICES[0].id);
+  const html = deliproRequest_(client, 'deli.php', { method: 'post', payload: payload }).getContentText('UTF-8');
+  const it = DriveApp.getFoldersByName('delipro_probe');
+  const folder = it.hasNext() ? it.next() : DriveApp.createFolder('delipro_probe');
+  folder.createFile('deli_list_' + today + '.txt', html);
+  Logger.log('保存先: ' + folder.getUrl() + ' / 読み取り件数: ' + parseDeliList_(html).orders.length);
+}
