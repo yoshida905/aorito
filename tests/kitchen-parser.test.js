@@ -80,8 +80,9 @@ test('集配一覧HTMLから注文番号・保留・日時・受付を読み取�
   const r = ctx.parseDeliList_(fs.readFileSync(path.join(__dirname, 'fixtures', 'deli_list.html'), 'utf8'));
   assert.strictEqual(r.total, 2);
   assert.strictEqual(r.orders.length, 2);
-  assert.strictEqual(JSON.stringify(r.orders[0]), JSON.stringify({ odid: '4241', status: '確定', date: '2026-10-11', time: '', office: '東海事業所' }));
-  assert.strictEqual(JSON.stringify(r.orders[1]), JSON.stringify({ odid: '4155', status: '保留', date: '2026-10-11', time: '09:30', office: '大阪事業所' }));
+  assert.strictEqual(r.amount, 100000);
+  assert.strictEqual(JSON.stringify(r.orders[0]), JSON.stringify({ odid: '4241', status: '確定', date: '2026-10-11', time: '', office: '東海事業所', staff: '', orderType: '東海直販' }));
+  assert.strictEqual(JSON.stringify(r.orders[1]), JSON.stringify({ odid: '4155', status: '保留', date: '2026-10-11', time: '09:30', office: '大阪事業所', staff: '大岡、山根', orderType: '大阪直販' }));
 });
 
 test('複数プランは料理明細の数量を優先、大皿は人前×数量', () => {
@@ -169,6 +170,17 @@ test('南海の除外注記は該当があるときだけ出る', () => {
   const tokyo = ctx.buildKitchenMail_('2026-10-11', '2026-10-18', [mk('2', '株式会社サンプル')], [], '東京キッチン指示書');
   assert.ok(osaka.html.includes('南海の定例分1件を除く'));
   assert.ok(!tokyo.html.includes('南海'));
+});
+
+
+test('日別一覧に売上と配送員が出る', () => {
+  const mk = (n, staff, date) => ({ number: n, date, time: '10:00', client: '株式会社サンプル', place: '', plans: [], details: '', headcount: 20, status: '確定', isLarge: false, staff });
+  const sales = { '2026-10-11': { confirmed: 2776235, pending: 120000 }, '2026-10-12': { confirmed: 0, pending: 0 } };
+  const mail = ctx.buildKitchenMail_('2026-10-11', '2026-10-12', [mk('1', '花川', '2026-10-11'), mk('2', '大岡、花川', '2026-10-11'), mk('3', '', '2026-10-11')], [], '大阪キッチン指示書', sales);
+  assert.ok(mail.html.includes('売上¥2,896,235(確定¥2,776,235・保留¥120,000)'));
+  assert.ok(mail.html.includes('配送: 花川2件・大岡1件・未定1件'));
+  assert.ok(mail.html.includes('売上(税込) ¥2,896,235'));
+  assert.ok(mail.html.includes(' 売上¥0'));
 });
 
 console.log(passed + ' tests passed');

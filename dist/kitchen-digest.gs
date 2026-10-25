@@ -438,7 +438,7 @@ function inferYear_(month, day, todayYmd) {
  */
 
 /**
- * @return {{total:number|null, orders:{odid:string, status:string, date:string, time:string, office:string}[]}}
+ * @return {{total:number|null, amount:number|null, orders:{odid:string, status:string, date:string, time:string, office:string, staff:string, orderType:string}[]}}
  */
 function parseDeliList_(html) {
   const s = String(html || '');
@@ -452,23 +452,38 @@ function parseDeliList_(html) {
   starts.forEach(function (st, i) {
     const block = s.slice(st.index, i + 1 < starts.length ? starts[i + 1].index : s.length);
     const dateM = block.match(/(\d{4}-\d{2}-\d{2})(?:\s*<br\s*\/?>\s*<span[^>]*>\s*(\d{1,2}:\d{2}))?/);
-    // 1つ目の「alignCenter」で中身のあるセルが受付(事業所)
-    const cells = [];
-    const cellRe = /<td[^>]*class="alignCenter"[^>]*>([^<]*)<\/td>/g;
-    let cm;
-    while ((cm = cellRe.exec(block)) !== null) {
-      const text = cm[1].replace(/\s+/g, ' ').trim();
-      if (text) cells.push(text);
-    }
+    // 1行目の「alignCenter」セル: [受付(事業所), 配送指示(配送員)]。2行目の1つ目は注文区分
+    const rowEnd = block.indexOf('</tr>');
+    const firstRow = rowEnd === -1 ? block : block.slice(0, rowEnd);
+    const secondRow = rowEnd === -1 ? '' : block.slice(rowEnd + 5);
+    const first = alignCenterCells_(firstRow);
+    const second = alignCenterCells_(secondRow);
     orders.push({
       odid: st.odid,
       status: /font-weight:\s*bold"?>\s*保留\s*</.test(block) ? '保留' : '確定',
       date: dateM ? dateM[1] : '',
       time: dateM && dateM[2] ? dateM[2] : '',
-      office: cells[0] || '',
+      office: first[0] || '',
+      staff: first[1] || '',
+      orderType: second[0] || '',
     });
   });
-  return { total: totalMatch ? Number(totalMatch[1]) : null, orders: orders };
+  const amountMatch = s.match(/合計金額\s*[￥¥]\s*([\d,]+)/);
+  return {
+    total: totalMatch ? Number(totalMatch[1]) : null,
+    // 検索結果全体の合計金額(税込)
+    amount: amountMatch ? Number(amountMatch[1].replace(/,/g, '')) : null,
+    orders: orders,
+  };
+}
+
+/** タグを含まない「alignCenter」セルの文字を、空欄も含めて順に返す */
+function alignCenterCells_(html) {
+  const out = [];
+  const re = /<td[^>]*class="alignCenter"[^>]*>([^<]*)<\/td>/g;
+  let m;
+  while ((m = re.exec(html)) !== null) out.push(m[1].replace(/\s+/g, ' ').trim());
+  return out;
 }
 
 // ===== DeliproClient.gs =====
@@ -503,7 +518,50 @@ function deliproLogin_() {
  * @param {string} officeId 受付の事業所ID('0'=すべて)
  */
 function deliproSearch_(client, fromYmd, toYmd, status, officeId) {
-  const payload = {
+  const payload = deliproSearchPayload_(fromYmd, toYmd, status, officeId);
+  const html = deliproRequest_(client, 'deli.php', { method: 'post', payload: payload }).getContentText('UTF-8');
+  const parsed = parseDeliList_(html);
+  if (parsed.total !== null && parsed.total !== parsed.orders.length) {
+    throw new Error('集配一覧の件数が合いません(表示' + parsed.total + '件・取得' + parsed.orders.length + '件)。画面の仕様変更の可能性があります');
+  }
+  return parsed.orders;
+}
+
+/**
+ * 日別の売上(税込)。集配一覧の「合計金額」を、日ごと・確定/保留ごとに検索して読む。
+ * 1日ずつ検索するので、まとめて同時に送って時間を短くする
+ * @return {Object<string, {confirmed:number, pending:number}>} キーは 'YYYY-MM-DD'
+ */
+function deliproDailySales_(client, days, officeId) {
+  const cookie = Object.keys(client.jar).map(function (k) { return k + '=' + client.jar[k]; }).join('; ');
+  const requests = [];
+  days.forEach(function (d) {
+    ['0', '1'].forEach(function (status) {
+      requests.push({
+        url: DELIPRO_BASE + 'deli.php',
+        method: 'post',
+        payload: deliproSearchPayload_(d, d, status, officeId),
+        headers: { Cookie: cookie },
+        followRedirects: false,
+        muteHttpExceptions: true,
+      });
+    });
+  });
+  const responses = UrlFetchApp.fetchAll(requests);
+  const result = {};
+  days.forEach(function (d, i) {
+    const amount = function (res) {
+      if (res.getResponseCode() !== 200) throw new Error('日別売上の取得に失敗しました(HTTP ' + res.getResponseCode() + ')');
+      return parseDeliList_(res.getContentText('UTF-8')).amount || 0;
+    };
+    result[d] = { confirmed: amount(responses[i * 2]), pending: amount(responses[i * 2 + 1]) };
+  });
+  return result;
+}
+
+/** 集配管理の検索条件(配達日 from〜to・注文状態・受付事業所) */
+function deliproSearchPayload_(fromYmd, toYmd, status, officeId) {
+  return {
     dayfield: 'oddelidate',
     datSt: fromYmd.replace(/-/g, '/'),
     datEd: toYmd.replace(/-/g, '/'),
@@ -520,12 +578,6 @@ function deliproSearch_(client, fromYmd, toYmd, status, officeId) {
     csname_s: '', cstel_s: '', csadd_s: '', odcstel_s: '', txtodid: '',
     'image.x': '10', 'image.y': '10',
   };
-  const html = deliproRequest_(client, 'deli.php', { method: 'post', payload: payload }).getContentText('UTF-8');
-  const parsed = parseDeliList_(html);
-  if (parsed.total !== null && parsed.total !== parsed.orders.length) {
-    throw new Error('集配一覧の件数が合いません(表示' + parsed.total + '件・取得' + parsed.orders.length + '件)。画面の仕様変更の可能性があります');
-  }
-  return parsed.orders;
 }
 
 /** 指定した注文番号のキッチン指示書(注文別:メイン)PDFを取得する */
@@ -659,13 +711,16 @@ function runKitchenDigest_(office, mailTo) {
       const l = byId[o.number] || {};
       o.status = l.status || '確定';
       o.office = l.office || '';
+      o.staff = l.staff || '';
+      o.orderType = l.orderType || '';
       seen[o.number] = true;
     });
     // キッチン指示書に載らない注文も一覧からは落とさない
     ids.filter(function (id) { return !seen[id]; }).forEach(function (id) {
       const l = byId[id];
       orders.push({ number: id, date: l.date, time: l.time, client: '(キッチン指示書に記載なし)', place: '',
-        plans: [], details: '', headcount: null, status: l.status, office: l.office });
+        plans: [], details: '', headcount: null, status: l.status, office: l.office,
+        staff: l.staff || '', orderType: l.orderType || '' });
     });
     orders.forEach(function (o) {
       o.isLarge = o.headcount !== null && o.headcount >= cfg.LARGE_HEADCOUNT;
@@ -684,7 +739,12 @@ function runKitchenDigest_(office, mailTo) {
       ? [deliproKitchenPdf_(client, main.map(function (o) { return o.number; }), 'kitchen_' + stamp + '.pdf')]
       : [];
 
-    const mail = buildKitchenMail_(today, end, main, ahead, office.title);
+    // 日別売上(税込・確定/保留別)
+    const days = [];
+    for (let d = today; d <= end; d = kAddDays_(d, 1)) days.push(d);
+    const sales = deliproDailySales_(client, days, office.id);
+
+    const mail = buildKitchenMail_(today, end, main, ahead, office.title, sales);
     MailApp.sendEmail({
       to: mailTo,
       subject: mail.subject,
@@ -699,7 +759,7 @@ function runKitchenDigest_(office, mailTo) {
 }
 
 /** メールの件名・HTML本文・テキスト本文を作る */
-function buildKitchenMail_(today, end, orders, ahead, title) {
+function buildKitchenMail_(today, end, orders, ahead, title, sales) {
   const cfg = KITCHEN_CONFIG;
   const large = orders.filter(function (o) { return o.isLarge; }).concat(ahead || []);
   const pending = orders.filter(isHighlightedPending_);
@@ -721,6 +781,13 @@ function buildKitchenMail_(today, end, orders, ahead, title) {
   h.push('<div style="font-family:sans-serif;font-size:14px;color:#222">');
   h.push('<p>' + kEsc_(kFormatJa_(today)) + '〜' + kEsc_(kFormatJa_(end)) + ' のデリプロ注文一覧です(確定・保留)。' +
     'キッチン指示書(注文別:メイン)のPDFを添付しています。</p>');
+  if (sales) {
+    const total = Object.keys(sales).reduce(function (t, k) {
+      return { confirmed: t.confirmed + sales[k].confirmed, pending: t.pending + sales[k].pending };
+    }, { confirmed: 0, pending: 0 });
+    h.push('<p>売上(税込) ' + kEsc_(yenK_(total.confirmed + total.pending)) + '(確定' + kEsc_(yenK_(total.confirmed)) +
+      '・保留' + kEsc_(yenK_(total.pending)) + ')</p>');
+  }
   h.push('<p>合計 ' + orders.length + '件 / ' + people(orders) + '名、うち保留 ' + pending.length + '件 / ' + people(pending) + '名' +
     (excludedPending ? '(南海の定例分' + excludedPending + '件を除く)' : '') + '</p>');
   h.push('<p>大型(' + cfg.LARGE_HEADCOUNT + '名以上・' + cfg.LARGE_LOOKAHEAD_DAYS + '日先まで) ' +
@@ -743,14 +810,16 @@ function buildKitchenMail_(today, end, orders, ahead, title) {
   for (let d = today; d <= end; d = kAddDays_(d, 1)) {
     const day = orders.filter(function (o) { return o.date === d; });
     h.push('<h4 style="margin:12px 0 4px">' + kEsc_(kFormatJa_(d)) + ' ' + day.length + '件' +
-      (day.length ? '(' + people(day) + '名)' : '') + '</h4>');
+      (day.length ? '(' + people(day) + '名)' : '') + salesText_(sales && sales[d]) + '</h4>');
+    const staffLine = staffSummary_(day);
+    if (staffLine) h.push('<p style="margin:0 0 4px;font-size:12px;color:#555">配送: ' + kEsc_(staffLine) + '</p>');
     h.push(day.length ? kitchenTable_(day, today, false) : '<p style="color:#888;margin:0">注文なし</p>');
   }
   h.push('<p style="color:#888;font-size:12px">人数はキッチン指示書のプラン・料理の数量からの推定です。卸(プリン・パンなど)は人数に含めません。</p>');
   h.push('</div>');
 
   const text = [subject, ''].concat(orders.map(function (o) {
-    return [kFormatJa_(o.date), o.time, 'No.' + o.number, o.status, o.isLarge ? '【大型】' : '', o.client,
+    return [kFormatJa_(o.date), o.time, o.staff ? '配送:' + o.staff : '', 'No.' + o.number, o.status, o.isLarge ? '【大型】' : '', o.client,
       o.wholesale ? '卸' : (o.headcount || '?') + '名', planText_(o)].join(' ');
   })).join('\n');
 
@@ -760,13 +829,14 @@ function buildKitchenMail_(today, end, orders, ahead, title) {
 function kitchenTable_(orders, today, showDaysLeft, showDeadline) {
   const th = 'style="border:1px solid #ccc;padding:4px 6px;background:#f2f2f2;text-align:left;white-space:nowrap"';
   const td = 'style="border:1px solid #ccc;padding:4px 6px;vertical-align:top"';
-  const heads = ['日付', '時間', 'No.', '状態', '人数', 'お客様', 'プラン', 'お届け先'];
+  const heads = ['日付', '時間', '配送', 'No.', '状態', '人数', 'お客様', 'プラン', 'お届け先'];
   if (showDaysLeft) heads.splice(1, 0, 'あと');
   if (showDeadline) heads.splice(1, 0, '受注締切');
   const rows = orders.map(function (o) {
     const cells = [
       kEsc_(kFormatJa_(o.date)),
       kEsc_(o.time || '-'),
+      kEsc_(o.staff || '未定'),
       kEsc_(o.number),
       isHighlightedPending_(o) ? '<b style="color:#b26a00">保留</b>' : kEsc_(o.status),
       (o.isLarge ? '<b style="color:#b00020">' : '') + kEsc_(o.wholesale ? '卸' : o.headcount ? o.headcount + '名' : '-') + (o.isLarge ? '</b>' : ''),
@@ -810,6 +880,31 @@ function deadlineCell_(o, today) {
   const left = kDiffDays_(today, d);
   const note = left < 0 ? '<b style="color:#b00020">超過</b>' : left === 0 ? '<b style="color:#b00020">本日</b>' : 'あと' + left + '日';
   return kEsc_(kFormatJa_(d)) + ' ' + note;
+}
+
+/** 日別見出しの売上表示「売上¥2,776,235(確定¥…・保留¥…)」。保留がなければ内訳は省く */
+function salesText_(s) {
+  if (!s) return '';
+  const total = s.confirmed + s.pending;
+  if (!total) return ' 売上¥0';
+  return ' 売上' + yenK_(total) + (s.pending ? '(確定' + yenK_(s.confirmed) + '・保留' + yenK_(s.pending) + ')' : '');
+}
+
+/** その日の配送員ごとの件数「花川2件・山口1件・未定3件」。最初のお届け時間順 */
+function staffSummary_(dayOrders) {
+  const map = {};
+  const order = [];
+  dayOrders.forEach(function (o) {
+    String(o.staff || '未定').split(/[、,，\s]+/).filter(Boolean).forEach(function (name) {
+      if (!map[name]) { map[name] = 0; order.push(name); }
+      map[name]++;
+    });
+  });
+  return order.map(function (n) { return n + map[n] + '件'; }).join('・');
+}
+
+function yenK_(n) {
+  return '¥' + String(Math.round(n || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 /** プラン欄の要約。プラン欄がない注文(南海など)は明細をそのまま出す */

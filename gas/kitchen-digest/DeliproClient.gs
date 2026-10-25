@@ -29,7 +29,50 @@ function deliproLogin_() {
  * @param {string} officeId 受付の事業所ID('0'=すべて)
  */
 function deliproSearch_(client, fromYmd, toYmd, status, officeId) {
-  const payload = {
+  const payload = deliproSearchPayload_(fromYmd, toYmd, status, officeId);
+  const html = deliproRequest_(client, 'deli.php', { method: 'post', payload: payload }).getContentText('UTF-8');
+  const parsed = parseDeliList_(html);
+  if (parsed.total !== null && parsed.total !== parsed.orders.length) {
+    throw new Error('集配一覧の件数が合いません(表示' + parsed.total + '件・取得' + parsed.orders.length + '件)。画面の仕様変更の可能性があります');
+  }
+  return parsed.orders;
+}
+
+/**
+ * 日別の売上(税込)。集配一覧の「合計金額」を、日ごと・確定/保留ごとに検索して読む。
+ * 1日ずつ検索するので、まとめて同時に送って時間を短くする
+ * @return {Object<string, {confirmed:number, pending:number}>} キーは 'YYYY-MM-DD'
+ */
+function deliproDailySales_(client, days, officeId) {
+  const cookie = Object.keys(client.jar).map(function (k) { return k + '=' + client.jar[k]; }).join('; ');
+  const requests = [];
+  days.forEach(function (d) {
+    ['0', '1'].forEach(function (status) {
+      requests.push({
+        url: DELIPRO_BASE + 'deli.php',
+        method: 'post',
+        payload: deliproSearchPayload_(d, d, status, officeId),
+        headers: { Cookie: cookie },
+        followRedirects: false,
+        muteHttpExceptions: true,
+      });
+    });
+  });
+  const responses = UrlFetchApp.fetchAll(requests);
+  const result = {};
+  days.forEach(function (d, i) {
+    const amount = function (res) {
+      if (res.getResponseCode() !== 200) throw new Error('日別売上の取得に失敗しました(HTTP ' + res.getResponseCode() + ')');
+      return parseDeliList_(res.getContentText('UTF-8')).amount || 0;
+    };
+    result[d] = { confirmed: amount(responses[i * 2]), pending: amount(responses[i * 2 + 1]) };
+  });
+  return result;
+}
+
+/** 集配管理の検索条件(配達日 from〜to・注文状態・受付事業所) */
+function deliproSearchPayload_(fromYmd, toYmd, status, officeId) {
+  return {
     dayfield: 'oddelidate',
     datSt: fromYmd.replace(/-/g, '/'),
     datEd: toYmd.replace(/-/g, '/'),
@@ -46,12 +89,6 @@ function deliproSearch_(client, fromYmd, toYmd, status, officeId) {
     csname_s: '', cstel_s: '', csadd_s: '', odcstel_s: '', txtodid: '',
     'image.x': '10', 'image.y': '10',
   };
-  const html = deliproRequest_(client, 'deli.php', { method: 'post', payload: payload }).getContentText('UTF-8');
-  const parsed = parseDeliList_(html);
-  if (parsed.total !== null && parsed.total !== parsed.orders.length) {
-    throw new Error('集配一覧の件数が合いません(表示' + parsed.total + '件・取得' + parsed.orders.length + '件)。画面の仕様変更の可能性があります');
-  }
-  return parsed.orders;
 }
 
 /** 指定した注文番号のキッチン指示書(注文別:メイン)PDFを取得する */
