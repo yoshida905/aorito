@@ -98,6 +98,22 @@ const SALES_CONFIG = {
     ],
   },
 
+  // アルバイト人件費(PLの111・112行)。CSVを置くフォルダは LABOR.FOLDER(スクリプトプロパティ LABOR_FOLDER_ID があればそちら)
+  LABOR: {
+    FOLDER: 'payroll_csv',
+    // タイミーの利用明細のCSV → 112行。金額は［合計報酬額］(利用料は含めない)。計上月は［求人日］の月
+    // 事業所は［求人タイトル］で決める(上から順に、最初に含まれていた言葉)
+    TIMEE: {
+      ROW: 112,
+      RULES: [
+        { match: '盛付', site: '関西' },
+        { match: '盛り付け', site: '関西' },
+        { match: '食器洗浄', site: '南海' },
+        { match: '洗い物', site: '南海' },
+      ],
+    },
+  },
+
   // 調査用のダウンロードを保存するマイドライブのフォルダ名
   PROBE_FOLDER: 'delipro_probe',
   TIME_ZONE: 'Asia/Tokyo',

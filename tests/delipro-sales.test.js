@@ -129,3 +129,23 @@ console.log('tax form tests passed');
   assert.deepStrictEqual(o.lines.map(l => l.how), ['担当者', 'インフォマート外']);
 }
 console.log('infomart ok');
+
+// タイミーの利用明細(架空)
+{
+  const { isTimeeCsv_, summarizeTimee_ } = require('../gas/delipro-sales/LaborParser.gs');
+  const tm = [
+    '﻿ワーカーID,求人タイトル,求人日,実働時間,合計報酬額,利用料',
+    'w1,店A 【店A】盛付けスタッフ募集！,2026/09/01,3.0,3600,1080',
+    'w2,店A 【店A】食器洗浄スタッフ募集！,2026/09/02,2.0,2400,720',
+    'w3,店A 【店A】食器洗浄スタッフ募集！,2026/09/03,3.0,3600,1080',
+    'w4,店A 【店A】配送スタッフ募集！,2026/10/01,1.0,1200,360',
+    '',
+  ].join('\r\n');
+  assert.ok(isTimeeCsv_(tm));
+  assert.ok(!isTimeeCsv_('従業員番号,氏名,日付,総労働時間'));
+  const r = summarizeTimee_(tm, [{ match: '盛付', site: '関西' }, { match: '食器洗浄', site: '南海' }]);
+  assert.deepStrictEqual(r.cells, [{ ym: '2026-09', site: '関西', value: 3600 }, { ym: '2026-09', site: '南海', value: 6000 }]);
+  assert.deepStrictEqual(r.lines[1], { ym: '2026-09', site: '南海', title: '食器洗浄スタッフ募集！', count: 2, hours: 5, amount: 6000, fee: 1800 });
+  assert.deepStrictEqual(r.unmapped, [{ ym: '2026-10', title: '配送スタッフ募集！', count: 1, amount: 1200 }]);
+}
+console.log('timee ok');

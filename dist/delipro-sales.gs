@@ -102,6 +102,22 @@ const SALES_CONFIG = {
     ],
   },
 
+  // アルバイト人件費(PLの111・112行)。CSVを置くフォルダは LABOR.FOLDER(スクリプトプロパティ LABOR_FOLDER_ID があればそちら)
+  LABOR: {
+    FOLDER: 'payroll_csv',
+    // タイミーの利用明細のCSV → 112行。金額は［合計報酬額］(利用料は含めない)。計上月は［求人日］の月
+    // 事業所は［求人タイトル］で決める(上から順に、最初に含まれていた言葉)
+    TIMEE: {
+      ROW: 112,
+      RULES: [
+        { match: '盛付', site: '関西' },
+        { match: '盛り付け', site: '関西' },
+        { match: '食器洗浄', site: '南海' },
+        { match: '洗い物', site: '南海' },
+      ],
+    },
+  },
+
   // 調査用のダウンロードを保存するマイドライブのフォルダ名
   PROBE_FOLDER: 'delipro_probe',
   TIME_ZONE: 'Asia/Tokyo',
@@ -372,6 +388,17 @@ function dailySalesJob() {
       }
     } catch (e) {
       issues.push('【インフォマート】取り込みでエラー: ' + e);
+    }
+    try {
+      const lb = laborDailyCheck_();
+      if (lb) {
+        issues.push('【人件費】タイミーのCSVを取り込みました(' + lb.months.join(',') + ')。「人件費_yyyy-MM」シートを確認してください');
+        lb.unmapped.forEach(function (u) {
+          issues.push('  事業所が決まらない求人: ' + u.ym + ' ' + u.title + ' ' + u.count + '件 ' + u.amount.toLocaleString() + '円');
+        });
+      }
+    } catch (e) {
+      issues.push('【人件費】取り込みでエラー: ' + e);
     }
     if (issues.length) {
       MailApp.sendEmail(salesNotifyTo_(), '【デリプロ売上集計】確認が必要な項目があります',
@@ -966,6 +993,20 @@ function compareInfomartMonth() {
  */
 function linkPlInfomartFormulas() {
   const cfg = SALES_CONFIG.INFOMART;
+  const targets = [];
+  cfg.LINK_SITES.forEach(function (site) {
+    cfg.SUPPLIERS.forEach(function (x) {
+      if (site in x.rows) targets.push({ sheet: cfg.SITES[site], row: x.rows[site] });
+    });
+  });
+  linkPlRows_(targets);
+}
+
+/**
+ * PLの指定の行(targets: {sheet,row}[])に、スクリプトプロパティ LINK_FROM_MONTH の月から年度末まで、
+ * 集計用スプレッドシートの同じセルを参照する IMPORTRANGE の式を入れる。ほかの式が入っているセルは書き換えない
+ */
+function linkPlRows_(targets) {
   const props = PropertiesService.getScriptProperties();
   const plId = props.getProperty('PL_SHEET_ID');
   if (!plId) throw new Error('スクリプトプロパティ PL_SHEET_ID にPLのスプレッドシートIDを登録してください');
@@ -982,22 +1023,18 @@ function linkPlInfomartFormulas() {
     months.push(y + '-' + ('0' + m).slice(-2));
     if (m === (SALES_CONFIG.PL_FIRST_MONTH + 10) % 12 + 1) break;
   }
-  cfg.LINK_SITES.forEach(function (site) {
-    const name = cfg.SITES[site];
-    const sh = pl.getSheetByName(name);
-    if (!sh) throw new Error('PLに「' + name + '」シートがありません');
-    cfg.SUPPLIERS.forEach(function (x) {
-      if (!(site in x.rows)) return;
-      months.forEach(function (ym) {
-        const cell = sh.getRange(x.rows[site], plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN));
-        const a1 = cell.getA1Notation();
-        const next = '=IMPORTRANGE("' + ss.getId() + '","\'' + name + '\'!' + a1 + '")';
-        const f = cell.getFormula();
-        if (f === next) return;
-        if (f && !/^=IMPORTRANGE\(/i.test(f)) { skipped.push(name + '!' + a1 + ' ' + f); return; }
-        log.push([now, name, a1, "'" + (f || cell.getValue()), "'" + next]);
-        cell.setFormula(next);
-      });
+  targets.forEach(function (t) {
+    const sh = pl.getSheetByName(t.sheet);
+    if (!sh) throw new Error('PLに「' + t.sheet + '」シートがありません');
+    months.forEach(function (ym) {
+      const cell = sh.getRange(t.row, plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN));
+      const a1 = cell.getA1Notation();
+      const next = '=IMPORTRANGE("' + ss.getId() + '","\'' + t.sheet + '\'!' + a1 + '")';
+      const f = cell.getFormula();
+      if (f === next) return;
+      if (f && !/^=IMPORTRANGE\(/i.test(f)) { skipped.push(t.sheet + '!' + a1 + ' ' + f); return; }
+      log.push([now, t.sheet, a1, "'" + (f || cell.getValue()), "'" + next]);
+      cell.setFormula(next);
     });
   });
   if (log.length) {
@@ -1007,6 +1044,196 @@ function linkPlInfomartFormulas() {
   }
   Logger.log('式を入れたセル: ' + log.length + '件(' + months[0] + '〜' + months[months.length - 1] + ')。記録は「PL修正記録」');
   if (skipped.length) Logger.log('ほかの式が入っていたため、そのままにしたセル:\n' + skipped.join('\n'));
+}
+
+// ===== LaborParser.gs =====
+/**
+ * アルバイト人件費のCSVを読み、事業所ごとに合計する(純粋関数。tests/delipro-sales.test.js)。
+ * 個人ごとの金額は返さない(呼び出し側がシートに書かないように、合計だけにする)
+ */
+
+/** タイミーの利用明細のCSVか(見出しで判定) */
+function isTimeeCsv_(text) {
+  const head = String(text || '').replace(/^﻿/, '').split(/\r?\n/)[0];
+  return head.indexOf('求人タイトル') !== -1 && head.indexOf('合計報酬額') !== -1;
+}
+
+/**
+ * タイミーの利用明細を、月×事業所に集計する
+ * @param rules [{match, site}] 求人タイトルに match が含まれれば site
+ * @return {{cells:{ym,site,value}[], lines:{ym,site,title,count,hours,amount,fee}[], unmapped:{ym,title,count,amount}[]}}
+ */
+function summarizeTimee_(text, rules) {
+  const rows = parseCsv_(String(text || '').replace(/^﻿/, ''));
+  const ix = {};
+  rows[0].forEach(function (n, i) { ix[n] = i; });
+  ['求人タイトル', '求人日', '合計報酬額', '実働時間', '利用料'].forEach(function (n) {
+    if (!(n in ix)) throw new Error('タイミーのCSVに列「' + n + '」がありません');
+  });
+  const cellAt = {}, lineAt = {}, missAt = {};
+  const cells = [], lines = [], unmapped = [];
+  rows.slice(1).forEach(function (r) {
+    if (r.length < 2 || !r[ix['求人日']]) return;
+    const ym = r[ix['求人日']].slice(0, 7).replace('/', '-');
+    const title = r[ix['求人タイトル']].replace(/^.*】/, '');
+    const amount = Number(r[ix['合計報酬額']]) || 0;
+    const rule = rules.filter(function (x) { return title.indexOf(x.match) !== -1; })[0];
+    if (!rule) {
+      const mk = ym + '|' + title;
+      if (!missAt[mk]) { missAt[mk] = { ym: ym, title: title, count: 0, amount: 0 }; unmapped.push(missAt[mk]); }
+      missAt[mk].count++;
+      missAt[mk].amount += amount;
+      return;
+    }
+    const ck = ym + '|' + rule.site;
+    if (!cellAt[ck]) { cellAt[ck] = { ym: ym, site: rule.site, value: 0 }; cells.push(cellAt[ck]); }
+    cellAt[ck].value += amount;
+    const lk = ck + '|' + title;
+    if (!lineAt[lk]) { lineAt[lk] = { ym: ym, site: rule.site, title: title, count: 0, hours: 0, amount: 0, fee: 0 }; lines.push(lineAt[lk]); }
+    const l = lineAt[lk];
+    l.count++;
+    l.hours += Number(r[ix['実働時間']]) || 0;
+    l.amount += amount;
+    l.fee += Number(r[ix['利用料']]) || 0;
+  });
+  return { cells: cells, lines: lines, unmapped: unmapped };
+}
+
+if (typeof module !== 'undefined') module.exports = { isTimeeCsv_, summarizeTimee_ };
+
+// ===== LaborImport.gs =====
+/**
+ * アルバイト人件費のCSV(月1回、フォルダ payroll_csv に置く)から、PLの112行(タイミー)を集計する。
+ * 書き込み先は集計用スプレッドシートのPL転記用シート(PLと同じシート名・同じセル番地)。PLのファイルには書き込まない。
+ * 個人の名前・金額はシートに書かず、事業所ごとの合計だけを書く
+ */
+
+/** フォルダ内のタイミーのCSVをすべて読み、含まれる月の112行を書く(手動実行・自動実行用。何度実行してもよい) */
+function importLaborCsv() {
+  const cfg = SALES_CONFIG.LABOR;
+  const sites = SALES_CONFIG.INFOMART.SITES;
+  const r = { cells: [], lines: [], unmapped: [] };
+  const seen = {};
+  laborCsvFiles_().forEach(function (f) {
+    const text = f.getBlob().getDataAsString('UTF-8');
+    if (!isTimeeCsv_(text)) return; // 勤怠のCSVなどは、いまは使わない
+    // 同じ締めの明細を2回置いても二重に数えないよう、ファイル名ごとに1回だけ読む
+    const key = f.getName().replace(/\s*\(\d+\)(?=\.csv$)/i, '');
+    if (seen[key]) return;
+    seen[key] = true;
+    const x = summarizeTimee_(text, cfg.TIMEE.RULES);
+    r.cells = r.cells.concat(x.cells);
+    r.lines = r.lines.concat(x.lines);
+    r.unmapped = r.unmapped.concat(x.unmapped);
+  });
+  const ss = openSalesSpreadsheet_();
+  const months = {};
+  r.lines.concat(r.unmapped).forEach(function (l) { months[l.ym] = true; });
+  Object.keys(months).sort().forEach(function (ym) {
+    const col = plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN);
+    Object.keys(sites).forEach(function (site) {
+      const sh = ss.getSheetByName(sites[site]) || ss.insertSheet(sites[site]);
+      sh.getRange(2, col).setValue(Number(ym.slice(5, 7)) + '月');
+      sh.getRange(cfg.TIMEE.ROW, 2, 1, 2).setValues([['タイミー', 'アルバイト人件費(タイミー・合計報酬額)']]);
+      const v = r.cells.filter(function (c) { return c.ym === ym && c.site === site; })
+        .reduce(function (a, c) { return a + c.value; }, 0);
+      sh.getRange(cfg.TIMEE.ROW, col).setValue(v).setNumberFormat('#,##0');
+    });
+    writeLaborDetail_(ss, ym, r);
+  });
+  Logger.log('タイミー: 月 ' + Object.keys(months).sort().join(',')
+    + (r.unmapped.length ? '。事業所が決まらない求人 ' + r.unmapped.length + '件(「人件費_yyyy-MM」シート)' : ''));
+  return { months: Object.keys(months).sort(), unmapped: r.unmapped };
+}
+
+/** 「人件費_yyyy-MM」シートに、事業所×求人ごとの件数・時間・報酬・利用料を書く(個人ごとには書かない) */
+function writeLaborDetail_(ss, ym, r) {
+  const name = '人件費_' + ym;
+  const sh = ss.getSheetByName(name) || ss.insertSheet(name);
+  sh.clear();
+  const out = [['事業所', '求人', '件数', '実働時間', '合計報酬額(PLに入れる額)', '利用料(参考・PLに入れない)']];
+  r.lines.filter(function (l) { return l.ym === ym; }).forEach(function (l) {
+    out.push([l.site, l.title, l.count, l.hours, l.amount, l.fee]);
+  });
+  sh.getRange(1, 1).setValue(ym + ' タイミー(求人日の月)・更新 ' + Utilities.formatDate(new Date(), SALES_CONFIG.TIME_ZONE, 'yyyy/MM/dd HH:mm'));
+  sh.getRange(3, 1, out.length, out[0].length).setValues(out);
+  sh.getRange(3, 1, 1, out[0].length).setFontWeight('bold').setBackground('#eeeeee');
+  sh.getRange(4, 5, Math.max(out.length - 1, 1), 2).setNumberFormat('#,##0');
+  const miss = r.unmapped.filter(function (u) { return u.ym === ym; });
+  if (!miss.length) return;
+  const m = [['求人', '件数', '合計報酬額', '理由']].concat(miss.map(function (u) {
+    return [u.title, u.count, u.amount, '求人タイトルから事業所が決まらない(Config.gs の LABOR.TIMEE.RULES に足す)'];
+  }));
+  sh.getRange(out.length + 5, 1, m.length, 4).setValues(m).setBackground('#fff2cc');
+}
+
+/** CSVを置くフォルダ(スクリプトプロパティ LABOR_FOLDER_ID、なければマイドライブの LABOR.FOLDER) */
+function laborFolder_() {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('LABOR_FOLDER_ID');
+  if (id) return DriveApp.getFolderById(id);
+  const it = DriveApp.getFoldersByName(SALES_CONFIG.LABOR.FOLDER);
+  if (!it.hasNext()) throw new Error('マイドライブにフォルダ「' + SALES_CONFIG.LABOR.FOLDER + '」がありません');
+  const f = it.next();
+  props.setProperty('LABOR_FOLDER_ID', f.getId());
+  return f;
+}
+
+function laborCsvFiles_() {
+  const out = [];
+  const it = laborFolder_().getFiles();
+  while (it.hasNext()) {
+    const f = it.next();
+    if (/\.csv$/i.test(f.getName())) out.push(f);
+  }
+  return out;
+}
+
+/** 毎朝の自動実行から呼ぶ。前回からCSVが置かれたか更新されたときだけ取り込む */
+function laborDailyCheck_() {
+  const props = PropertiesService.getScriptProperties();
+  const last = Number(props.getProperty('LABOR_LAST_IMPORT') || 0);
+  const newest = laborCsvFiles_().reduce(function (m, f) { return Math.max(m, f.getLastUpdated().getTime()); }, 0);
+  if (!newest || newest <= last) return null;
+  const r = importLaborCsv();
+  props.setProperty('LABOR_LAST_IMPORT', String(newest));
+  return r;
+}
+
+/**
+ * 前月(またはスクリプトプロパティ COMPARE_MONTH の月)のタイミーの集計を、PLの112行の手入力と照合する(手動実行用)。
+ * 結果は「人件費照合_yyyy-MM」シート。PLは読むだけ。先に importLaborCsv を実行しておく
+ */
+function compareLaborMonth() {
+  const props = PropertiesService.getScriptProperties();
+  const ym = props.getProperty('COMPARE_MONTH')
+    || Utilities.formatDate(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1), SALES_CONFIG.TIME_ZONE, 'yyyy-MM');
+  const plId = props.getProperty('PL_SHEET_ID');
+  if (!plId) throw new Error('スクリプトプロパティ PL_SHEET_ID にPLのスプレッドシートIDを登録してください');
+  const ss = openSalesSpreadsheet_();
+  const pl = SpreadsheetApp.openById(plId);
+  const row = SALES_CONFIG.LABOR.TIMEE.ROW;
+  const col = plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN);
+  const sites = SALES_CONFIG.INFOMART.SITES;
+  const out = [['事業所', 'PLの行', '項目', 'PL(手入力)', 'タイミー(自動)', '差']];
+  Object.keys(sites).forEach(function (site) {
+    const auto = Number(ss.getSheetByName(sites[site]).getRange(row, col).getValue()) || 0;
+    const manual = Number(pl.getSheetByName(sites[site]).getRange(row, col).getValue()) || 0;
+    out.push([site, row, 'タイミー', manual, auto, auto - manual]);
+  });
+  const name = '人件費照合_' + ym;
+  const sh = ss.getSheetByName(name) || ss.insertSheet(name);
+  sh.clear();
+  sh.getRange(1, 1, out.length, out[0].length).setValues(out);
+  sh.getRange(1, 1, 1, out[0].length).setFontWeight('bold').setBackground('#eeeeee');
+  sh.getRange(2, 4, out.length - 1, 3).setNumberFormat('#,##0');
+  Logger.log(ym + ': ' + out.slice(1).map(function (x) { return x[0] + ' 差 ' + x[5]; }).join(' / '));
+}
+
+/** PLの112行(タイミー)を、LINK_FROM_MONTH の月から IMPORTRANGE の式に切り替える(手動実行。1回でよい) */
+function linkPlLaborFormulas() {
+  const sites = SALES_CONFIG.INFOMART.SITES;
+  linkPlRows_(Object.keys(sites).map(function (site) { return { sheet: sites[site], row: SALES_CONFIG.LABOR.TIMEE.ROW }; }));
 }
 
 // ===== DeliListParser.gs =====

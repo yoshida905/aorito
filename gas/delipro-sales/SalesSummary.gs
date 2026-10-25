@@ -54,6 +54,17 @@ function dailySalesJob() {
     } catch (e) {
       issues.push('【インフォマート】取り込みでエラー: ' + e);
     }
+    try {
+      const lb = laborDailyCheck_();
+      if (lb) {
+        issues.push('【人件費】タイミーのCSVを取り込みました(' + lb.months.join(',') + ')。「人件費_yyyy-MM」シートを確認してください');
+        lb.unmapped.forEach(function (u) {
+          issues.push('  事業所が決まらない求人: ' + u.ym + ' ' + u.title + ' ' + u.count + '件 ' + u.amount.toLocaleString() + '円');
+        });
+      }
+    } catch (e) {
+      issues.push('【人件費】取り込みでエラー: ' + e);
+    }
     if (issues.length) {
       MailApp.sendEmail(salesNotifyTo_(), '【デリプロ売上集計】確認が必要な項目があります',
         issues.join('\n') + '\n\n集計シート: ' + openSalesSpreadsheet_().getUrl());

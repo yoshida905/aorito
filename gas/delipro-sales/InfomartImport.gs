@@ -204,6 +204,20 @@ function compareInfomartMonth() {
  */
 function linkPlInfomartFormulas() {
   const cfg = SALES_CONFIG.INFOMART;
+  const targets = [];
+  cfg.LINK_SITES.forEach(function (site) {
+    cfg.SUPPLIERS.forEach(function (x) {
+      if (site in x.rows) targets.push({ sheet: cfg.SITES[site], row: x.rows[site] });
+    });
+  });
+  linkPlRows_(targets);
+}
+
+/**
+ * PLの指定の行(targets: {sheet,row}[])に、スクリプトプロパティ LINK_FROM_MONTH の月から年度末まで、
+ * 集計用スプレッドシートの同じセルを参照する IMPORTRANGE の式を入れる。ほかの式が入っているセルは書き換えない
+ */
+function linkPlRows_(targets) {
   const props = PropertiesService.getScriptProperties();
   const plId = props.getProperty('PL_SHEET_ID');
   if (!plId) throw new Error('スクリプトプロパティ PL_SHEET_ID にPLのスプレッドシートIDを登録してください');
@@ -220,22 +234,18 @@ function linkPlInfomartFormulas() {
     months.push(y + '-' + ('0' + m).slice(-2));
     if (m === (SALES_CONFIG.PL_FIRST_MONTH + 10) % 12 + 1) break;
   }
-  cfg.LINK_SITES.forEach(function (site) {
-    const name = cfg.SITES[site];
-    const sh = pl.getSheetByName(name);
-    if (!sh) throw new Error('PLに「' + name + '」シートがありません');
-    cfg.SUPPLIERS.forEach(function (x) {
-      if (!(site in x.rows)) return;
-      months.forEach(function (ym) {
-        const cell = sh.getRange(x.rows[site], plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN));
-        const a1 = cell.getA1Notation();
-        const next = '=IMPORTRANGE("' + ss.getId() + '","\'' + name + '\'!' + a1 + '")';
-        const f = cell.getFormula();
-        if (f === next) return;
-        if (f && !/^=IMPORTRANGE\(/i.test(f)) { skipped.push(name + '!' + a1 + ' ' + f); return; }
-        log.push([now, name, a1, "'" + (f || cell.getValue()), "'" + next]);
-        cell.setFormula(next);
-      });
+  targets.forEach(function (t) {
+    const sh = pl.getSheetByName(t.sheet);
+    if (!sh) throw new Error('PLに「' + t.sheet + '」シートがありません');
+    months.forEach(function (ym) {
+      const cell = sh.getRange(t.row, plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN));
+      const a1 = cell.getA1Notation();
+      const next = '=IMPORTRANGE("' + ss.getId() + '","\'' + t.sheet + '\'!' + a1 + '")';
+      const f = cell.getFormula();
+      if (f === next) return;
+      if (f && !/^=IMPORTRANGE\(/i.test(f)) { skipped.push(t.sheet + '!' + a1 + ' ' + f); return; }
+      log.push([now, t.sheet, a1, "'" + (f || cell.getValue()), "'" + next]);
+      cell.setFormula(next);
     });
   });
   if (log.length) {

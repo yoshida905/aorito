@@ -106,9 +106,20 @@ PLの欄を自動に切り替えるときは、スクリプトプロパティ `L
 `linkPlInfomartFormulas` を1回実行します。`INFOMART.LINK_SITES` の事業所の欄に、その月から年度末まで
 IMPORTRANGE の式が入ります。前の内容は「PL修正記録」に残ります。
 
+## アルバイト人件費(PLの111・112行)
+
+CSVはマイドライブの「payroll_csv」フォルダに置きます(ほかの人と共有しない)。
+
+- タイミー(112行): 管理画面の「利用明細」のCSVを置く。金額は［合計報酬額］(利用料は含めない)、計上月は［求人日］の月。
+  事業所は求人タイトルで決める(盛付け=関西、食器洗浄=南海。Config.gs の `LABOR.TIMEE.RULES`)。
+  翌朝の自動実行で取り込まれる。すぐに入れるときは `importLaborCsv`、PLとの照合は `compareLaborMonth`、
+  PLの112行を式に切り替えるときは `linkPlLaborFormulas`(`LINK_FROM_MONTH` の月から)
+- マネーフォワード(111行): 総支給額(交通費を含む)・月末締め翌月10日払い。給与のCSVの形が分かってから作る
+- 集計シートには、事業所ごと・求人ごとの合計だけを書き、個人の名前や金額は書かない
+
 ## ファイル構成
 
-`gas/delipro-sales/` の `Config.gs`・`SalesParser.gs`・`TaxParser.gs`・`PlLayout.gs`・`SalesSummary.gs`・`SalesSheet.gs`・`PlExport.gs`・`InfomartParser.gs`・`InfomartImport.gs`・`DeliListParser.gs`・`DeliproClient.gs`・`CsvProbe.gs` を
+`gas/delipro-sales/` の `Config.gs`・`SalesParser.gs`・`TaxParser.gs`・`PlLayout.gs`・`SalesSummary.gs`・`SalesSheet.gs`・`PlExport.gs`・`InfomartParser.gs`・`InfomartImport.gs`・`LaborParser.gs`・`LaborImport.gs`・`DeliListParser.gs`・`DeliproClient.gs`・`CsvProbe.gs` を
 1つにまとめたものが `dist/delipro-sales.gs` です。デリプロへのログインと検索の部分は
 キッチン指示書メールと同じ内容です。
 
