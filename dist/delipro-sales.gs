@@ -1431,12 +1431,16 @@ function compareLaborMonth() {
 
 /**
  * PLの人件費の行を、LINK_FROM_MONTH の月から IMPORTRANGE の式に切り替える(手動実行)。
- * 対象はスクリプトプロパティ LINK_LABOR_ROWS(カンマ区切り。例: 111,112,fee)。なければ 112 だけ。fee はタイミー利用料の行
+ * 対象はスクリプトプロパティ LINK_LABOR_ROWS(カンマ区切り。例: 111,112,fee)。なければ 111・112・タイミー利用料の行。
+ * fee はタイミー利用料の行。全角の数字やカンマでも読める
  */
 function linkPlLaborFormulas() {
   const cfg = SALES_CONFIG.LABOR;
   const sites = SALES_CONFIG.INFOMART.SITES;
-  const keys = (PropertiesService.getScriptProperties().getProperty('LINK_LABOR_ROWS') || '112').split(',').map(function (x) { return x.trim(); });
+  const prop = PropertiesService.getScriptProperties().getProperty('LINK_LABOR_ROWS');
+  const keys = String(prop || ('' + cfg.ATTENDANCE.ROW + ',' + cfg.TIMEE.ROW + ',fee')).normalize('NFKC')
+    .split(/[,、\s]+/).map(function (x) { return x.trim(); }).filter(String);
+  Logger.log('対象の行: ' + keys.join(',') + (prop ? '(スクリプトプロパティ LINK_LABOR_ROWS)' : '(LINK_LABOR_ROWS がないため、決まった行)'));
   const targets = [];
   Object.keys(sites).forEach(function (site) {
     keys.forEach(function (k) {
