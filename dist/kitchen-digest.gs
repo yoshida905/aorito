@@ -431,37 +431,6 @@ function inferYear_(month, day, todayYmd) {
   return year + '-' + ('0' + month).slice(-2) + '-' + ('0' + day).slice(-2);
 }
 
-/**
- * デリプロ「集配一覧PDF」のテキストから、注文番号ごとの配車(○号車)・出発時間(発 HH:MM)・配達スタッフを読む。
- * PDFの1行=1つの文字列ブロック。注文番号の行から次の注文番号の行までを1件とみなす。
- * @return {Object<string, {car:string, depart:string, staff:string}>}
- */
-function parseDeliSheetText_(rawText) {
-  const lines = String(rawText || '').split('\n').map(function (l) { return l.replace(/\s+/g, ' ').trim(); });
-  const result = {};
-  const starts = [];
-  lines.forEach(function (l, i) {
-    // 注文番号だけの行で、すぐ後(または同じ行)に配達日が続くものを1件の始まりとする
-    const m = l.match(/^(\d{3,6})(?:\s+□)?$/);
-    if (m && /\d{4}\/\d{1,2}\/\d{1,2}/.test(lines.slice(i + 1, i + 4).join(' '))) starts.push({ i: i, no: m[1] });
-  });
-  starts.forEach(function (st, k) {
-    const block = lines.slice(st.i + 1, k + 1 < starts.length ? starts[k + 1].i : lines.length);
-    const text = block.join(' ');
-    const car = text.match(/(\d+)\s*号車/);
-    const depart = text.match(/発\s*(\d{1,2}[:：]\d{2})/);
-    // 配達日時の後ろ(時刻の次)にある、号車・発・電話番号・住所ではない短い語を配達スタッフとみなす
-    let staff = '';
-    const dt = text.match(/\d{4}\/\d{1,2}\/\d{1,2}(?:\s+\d{1,2}:\d{2})?\s+([^\s□]+)/);
-    if (dt && !/号車|^発$|^\d|株式会社|様$/.test(dt[1])) staff = dt[1];
-    result[st.no] = {
-      car: car ? car[1] + '号車' : '',
-      depart: depart ? depart[1].replace('：', ':') : '',
-      staff: staff,
-    };
-  });
-  return result;
-}
 
 // ===== DeliListParser.gs =====
 /**
@@ -470,7 +439,7 @@ function parseDeliSheetText_(rawText) {
  */
 
 /**
- * @return {{total:number|null, amount:number|null, orders:{odid:string, status:string, date:string, time:string, office:string, staff:string, orderType:string}[]}}
+ * @return {{total:number|null, amount:number|null, orders:{odid:string, status:string, date:string, time:string, office:string, staff:string, orderType:string, car:string, depart:string}[]}}
  */
 function parseDeliList_(html) {
   const s = String(html || '');
@@ -483,29 +452,75 @@ function parseDeliList_(html) {
 
   starts.forEach(function (st, i) {
     const block = s.slice(st.index, i + 1 < starts.length ? starts[i + 1].index : s.length);
-    const dateM = block.match(/(\d{4}-\d{2}-\d{2})(?:\s*<br\s*\/?>\s*<span[^>]*>\s*(\d{1,2}:\d{2}))?/);
-    // 1行目の「alignCenter」セル: [受付(事業所), 配送指示(配送員)]。2行目の1つ目は注文区分
-    const rowEnd = block.indexOf('</tr>');
-    const firstRow = rowEnd === -1 ? block : block.slice(0, rowEnd);
-    const secondRow = rowEnd === -1 ? '' : block.slice(rowEnd + 5);
-    const first = alignCenterCells_(firstRow);
-    const second = alignCenterCells_(secondRow);
-    orders.push({
-      odid: st.odid,
-      status: /font-weight:\s*bold"?>\s*保留\s*</.test(block) ? '保留' : '確定',
-      date: dateM ? dateM[1] : '',
-      time: dateM && dateM[2] ? dateM[2] : '',
-      office: first[0] || '',
-      staff: first[1] || '',
-      orderType: second[0] || '',
-    });
+    orders.push(isNewLayout_(block) ? parseNewRow_(st.odid, block) : parseOldRow_(st.odid, block));
   });
+
   const amountMatch = s.match(/合計金額\s*[￥¥]\s*([\d,]+)/);
   return {
     total: totalMatch ? Number(totalMatch[1]) : null,
     // 検索結果全体の合計金額(税込)
     amount: amountMatch ? Number(amountMatch[1].replace(/,/g, '')) : null,
     orders: orders,
+  };
+}
+
+/**
+ * 2026年10月以降の新しい集配管理画面の1件分。
+ * 受付欄(div_reception)に注文区分・受付事業所、配達欄(div_delidate)に配達日時・配達スタッフ、
+ * 隠し項目に配車(hid_odtruck)・出発日時(hid_oddeparttime)がある
+ */
+function parseNewRow_(odid, block) {
+  const deli = (block.match(/class="div_delidate">([\s\S]*?)<div class="div_inst">/) || [])[1] ||
+    (block.match(/class="div_delidate">([\s\S]*?)<\/td>/) || [])[1] || '';
+  // 受付欄は「div_reception」から配達欄の手前まで
+  const recStart = block.indexOf('div_reception');
+  const recText = recStart === -1 ? '' : block.slice(recStart, block.indexOf('div_delidate'));
+  const date = deli.match(/(\d{4}-\d{2}-\d{2})\s*<\/span>/);
+  const time = deli.match(/<\/span>\s*<span[^>]*>\s*(\d{1,2}:\d{2})\s*<\/span>/);
+  const staff = deli.match(/icon_staff[^>]*><\/i>\s*([^<]+?)\s*<\/div>/);
+  const office = recText.match(/icon_staff[^>]*><\/i>\s*([^<]+?)\s*<\/div>/);
+  const orderType = block.match(/class="chip_odtype[^"]*">\s*([^<]+?)\s*<\/span>/);
+  const hidden = function (name) {
+    const m = block.match(new RegExp('id="hid_' + name + '_' + odid + '"\\s*value="([^"]*)"'));
+    return m ? m[1].trim() : '';
+  };
+  const truck = hidden('odtruck');
+  const depart = hidden('oddeparttime').match(/(\d{1,2}:\d{2})/);
+  const staffName = staff ? staff[1].trim() : '';
+  return {
+    odid: odid,
+    status: /font-weight:\s*bold"?>\s*保留\s*</.test(block) ? '保留' : '確定',
+    date: date ? date[1] : '',
+    time: time ? time[1] : '',
+    office: office ? office[1].trim() : '',
+    staff: staffName === '未設定' ? '' : staffName,
+    orderType: orderType ? orderType[1].trim() : '',
+    car: truck && truck !== '0' ? truck + '号車' : '',
+    depart: depart ? ('0' + depart[1]).slice(-5) : '',
+  };
+}
+
+function isNewLayout_(block) {
+  return block.indexOf('div_delidate') !== -1;
+}
+
+/** 2026年10月より前の集配管理画面の1件分 */
+function parseOldRow_(odid, block) {
+  const dateM = block.match(/(\d{4}-\d{2}-\d{2})(?:\s*<br\s*\/?>\s*<span[^>]*>\s*(\d{1,2}:\d{2}))?/);
+  // 1行目の「alignCenter」セル: [受付(事業所), 配送指示(配送員)]。2行目の1つ目は注文区分
+  const rowEnd = block.indexOf('</tr>');
+  const first = alignCenterCells_(rowEnd === -1 ? block : block.slice(0, rowEnd));
+  const second = alignCenterCells_(rowEnd === -1 ? '' : block.slice(rowEnd + 5));
+  return {
+    odid: odid,
+    status: /font-weight:\s*bold"?>\s*保留\s*</.test(block) ? '保留' : '確定',
+    date: dateM ? dateM[1] : '',
+    time: dateM && dateM[2] ? dateM[2] : '',
+    office: first[0] || '',
+    staff: first[1] || '',
+    orderType: second[0] || '',
+    car: '',
+    depart: '',
   };
 }
 
@@ -556,6 +571,8 @@ function deliproSearch_(client, fromYmd, toYmd, status, officeId) {
   if (parsed.total !== null && parsed.total !== parsed.orders.length) {
     throw new Error('集配一覧の件数が合いません(表示' + parsed.total + '件・取得' + parsed.orders.length + '件)。画面の仕様変更の可能性があります');
   }
+  // 保留・確定は、どちらの条件で検索したかで決める(画面の表示が変わっても確実)
+  parsed.orders.forEach(function (o) { o.status = status === '1' ? '保留' : '確定'; });
   return parsed.orders;
 }
 
@@ -620,19 +637,6 @@ function deliproKitchenPdf_(client, odids, fileName) {
     throw new Error('キッチン指示書PDFを取得できませんでした(Content-Type: ' + type + ')');
   }
   return res.getBlob().setContentType(MimeType.PDF).setName(fileName);
-}
-
-/** 指定した注文番号の集配一覧PDF(配車・出発時間が載っている)を取得する */
-function deliproDeliSheetPdf_(client, odids) {
-  const res = deliproRequest_(client, 'deli.php', {
-    method: 'post',
-    payload: { mode: 'printDeliPDF', odids: odids.join(','), rad_sort_s: '0' },
-  });
-  const type = String(res.getHeaders()['Content-Type'] || res.getHeaders()['content-type'] || '');
-  if (type.indexOf('pdf') === -1) {
-    throw new Error('集配一覧PDFを取得できませんでした(Content-Type: ' + type + ')');
-  }
-  return res.getBlob().setContentType(MimeType.PDF).setName('deli_sheet.pdf');
 }
 
 /** Cookieを引き継ぎながらリダイレクトをたどる */
@@ -758,6 +762,8 @@ function runKitchenDigest_(office, mailTo) {
       o.office = l.office || '';
       o.staff = l.staff || '';
       o.orderType = l.orderType || '';
+      o.car = l.car || '';
+      o.depart = l.depart || '';
       seen[o.number] = true;
     });
     // キッチン指示書に載らない注文も一覧からは落とさない
@@ -765,7 +771,7 @@ function runKitchenDigest_(office, mailTo) {
       const l = byId[id];
       orders.push({ number: id, date: l.date, time: l.time, client: '(キッチン指示書に記載なし)', place: '',
         plans: [], details: '', headcount: null, status: l.status, office: l.office,
-        staff: l.staff || '', orderType: l.orderType || '' });
+        staff: l.staff || '', orderType: l.orderType || '', car: l.car || '', depart: l.depart || '' });
     });
     orders.forEach(function (o) {
       o.isLarge = o.headcount !== null && o.headcount >= cfg.LARGE_HEADCOUNT;
@@ -783,24 +789,6 @@ function runKitchenDigest_(office, mailTo) {
     const attachments = main.length
       ? [deliproKitchenPdf_(client, main.map(function (o) { return o.number; }), 'kitchen_' + stamp + '.pdf')]
       : [];
-
-    // 集配一覧PDFの配車欄から、配車(○号車)・出発時間・配達スタッフを付け合わせる
-    if (main.length) {
-      try {
-        const sheet = parseDeliSheetText_(extractPdfText_(
-          deliproDeliSheetPdf_(client, main.map(function (o) { return o.number; })).getBytes()));
-        main.forEach(function (o) {
-          const d = sheet[o.number];
-          if (!d) return;
-          o.car = d.car;
-          o.depart = d.depart;
-          if (!o.staff) o.staff = d.staff;
-        });
-      } catch (e) {
-        // 配車が取れなくてもメール自体は送る
-        Logger.log('集配一覧PDFの読み取りに失敗: ' + e);
-      }
-    }
 
     // 日別売上(税込・確定/保留別)
     const days = [];
@@ -1013,27 +1001,6 @@ function probeDeliproCsv() {
     folder.createFile(blob);
   });
   Logger.log('保存先: ' + folder.getUrl() + ' / 注文' + ids.length + '件');
-}
-
-/**
- * 調査用(1回だけ実行): 今日〜7日先の大阪の注文で集配一覧PDFを取得し、PDFと読み取った文字を
- * 「delipro_probe」フォルダに保存する。配車・出発時間の読み取りが正しいかの確認に使う。
- */
-function probeDeliSheet() {
-  const cfg = KITCHEN_CONFIG;
-  const today = Utilities.formatDate(new Date(), cfg.TIME_ZONE, 'yyyy-MM-dd');
-  const client = deliproLogin_();
-  const ids = deliproSearch_(client, today, kAddDays_(today, cfg.DAYS_AHEAD), '0', cfg.OFFICES[0].id)
-    .map(function (o) { return o.odid; });
-  if (!ids.length) throw new Error('対象の注文がありません');
-  const pdf = deliproDeliSheetPdf_(client, ids);
-  const text = extractPdfText_(pdf.getBytes());
-  const it = DriveApp.getFoldersByName('delipro_probe');
-  const folder = it.hasNext() ? it.next() : DriveApp.createFolder('delipro_probe');
-  folder.createFile(pdf.setName('deli_sheet_' + ids.length + '件.pdf'));
-  folder.createFile('deli_sheet_text_' + ids.length + '件.txt', text + '\n\n---- 読み取り結果 ----\n' +
-    JSON.stringify(parseDeliSheetText_(text), null, 1));
-  Logger.log('保存先: ' + folder.getUrl());
 }
 
 /**

@@ -35,6 +35,8 @@ function deliproSearch_(client, fromYmd, toYmd, status, officeId) {
   if (parsed.total !== null && parsed.total !== parsed.orders.length) {
     throw new Error('集配一覧の件数が合いません(表示' + parsed.total + '件・取得' + parsed.orders.length + '件)。画面の仕様変更の可能性があります');
   }
+  // 保留・確定は、どちらの条件で検索したかで決める(画面の表示が変わっても確実)
+  parsed.orders.forEach(function (o) { o.status = status === '1' ? '保留' : '確定'; });
   return parsed.orders;
 }
 
@@ -99,19 +101,6 @@ function deliproKitchenPdf_(client, odids, fileName) {
     throw new Error('キッチン指示書PDFを取得できませんでした(Content-Type: ' + type + ')');
   }
   return res.getBlob().setContentType(MimeType.PDF).setName(fileName);
-}
-
-/** 指定した注文番号の集配一覧PDF(配車・出発時間が載っている)を取得する */
-function deliproDeliSheetPdf_(client, odids) {
-  const res = deliproRequest_(client, 'deli.php', {
-    method: 'post',
-    payload: { mode: 'printDeliPDF', odids: odids.join(','), rad_sort_s: '0' },
-  });
-  const type = String(res.getHeaders()['Content-Type'] || res.getHeaders()['content-type'] || '');
-  if (type.indexOf('pdf') === -1) {
-    throw new Error('集配一覧PDFを取得できませんでした(Content-Type: ' + type + ')');
-  }
-  return res.getBlob().setContentType(MimeType.PDF).setName('deli_sheet.pdf');
 }
 
 /** Cookieを引き継ぎながらリダイレクトをたどる */

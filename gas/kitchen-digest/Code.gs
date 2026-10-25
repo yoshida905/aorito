@@ -91,6 +91,8 @@ function runKitchenDigest_(office, mailTo) {
       o.office = l.office || '';
       o.staff = l.staff || '';
       o.orderType = l.orderType || '';
+      o.car = l.car || '';
+      o.depart = l.depart || '';
       seen[o.number] = true;
     });
     // キッチン指示書に載らない注文も一覧からは落とさない
@@ -98,7 +100,7 @@ function runKitchenDigest_(office, mailTo) {
       const l = byId[id];
       orders.push({ number: id, date: l.date, time: l.time, client: '(キッチン指示書に記載なし)', place: '',
         plans: [], details: '', headcount: null, status: l.status, office: l.office,
-        staff: l.staff || '', orderType: l.orderType || '' });
+        staff: l.staff || '', orderType: l.orderType || '', car: l.car || '', depart: l.depart || '' });
     });
     orders.forEach(function (o) {
       o.isLarge = o.headcount !== null && o.headcount >= cfg.LARGE_HEADCOUNT;
@@ -116,24 +118,6 @@ function runKitchenDigest_(office, mailTo) {
     const attachments = main.length
       ? [deliproKitchenPdf_(client, main.map(function (o) { return o.number; }), 'kitchen_' + stamp + '.pdf')]
       : [];
-
-    // 集配一覧PDFの配車欄から、配車(○号車)・出発時間・配達スタッフを付け合わせる
-    if (main.length) {
-      try {
-        const sheet = parseDeliSheetText_(extractPdfText_(
-          deliproDeliSheetPdf_(client, main.map(function (o) { return o.number; })).getBytes()));
-        main.forEach(function (o) {
-          const d = sheet[o.number];
-          if (!d) return;
-          o.car = d.car;
-          o.depart = d.depart;
-          if (!o.staff) o.staff = d.staff;
-        });
-      } catch (e) {
-        // 配車が取れなくてもメール自体は送る
-        Logger.log('集配一覧PDFの読み取りに失敗: ' + e);
-      }
-    }
 
     // 日別売上(税込・確定/保留別)
     const days = [];

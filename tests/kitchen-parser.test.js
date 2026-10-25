@@ -81,8 +81,8 @@ test('集配一覧HTMLから注文番号・保留・日時・受付を読み取�
   assert.strictEqual(r.total, 2);
   assert.strictEqual(r.orders.length, 2);
   assert.strictEqual(r.amount, 100000);
-  assert.strictEqual(JSON.stringify(r.orders[0]), JSON.stringify({ odid: '4241', status: '確定', date: '2026-10-11', time: '', office: '東海事業所', staff: '', orderType: '東海直販' }));
-  assert.strictEqual(JSON.stringify(r.orders[1]), JSON.stringify({ odid: '4155', status: '保留', date: '2026-10-11', time: '09:30', office: '大阪事業所', staff: '大岡、山根', orderType: '大阪直販' }));
+  assert.strictEqual(JSON.stringify(r.orders[0]), JSON.stringify({ odid: '4241', status: '確定', date: '2026-10-11', time: '', office: '東海事業所', staff: '', orderType: '東海直販', car: '', depart: '' }));
+  assert.strictEqual(JSON.stringify(r.orders[1]), JSON.stringify({ odid: '4155', status: '保留', date: '2026-10-11', time: '09:30', office: '大阪事業所', staff: '大岡、山根', orderType: '大阪直販', car: '', depart: '' }));
 });
 
 test('複数プランは料理明細の数量を優先、大皿は人前×数量', () => {
@@ -185,15 +185,12 @@ test('日別一覧に売上と配送員が出る', () => {
 });
 
 
-test('集配一覧PDFの配車欄から号車・出発時間・配達スタッフを読める', () => {
-  const t = ['集配一覧', 'No', '配達日時', '配車', 'お届け先', '住所', '注文内容',
-    '4373', '□', '2026/10/26', '08:30', 'RISE', '5号車', '発 08:20', 'サンプル電鉄株式会社', '06-0000-0000', '大阪市中央区', 'サンプル弁当×17 他',
-    '4342', '□', '2026/10/26', '09:30', '山下', '1号車', '発 09:20', 'サンプル電鉄株式会社',
-    '4400', '2026/10/27', '株式会社サンプル', '大阪市北区'].join('\n');
-  const r = ctx.parseDeliSheetText_(t);
-  assert.strictEqual(JSON.stringify(r['4373']), JSON.stringify({ car: '5号車', depart: '08:20', staff: 'RISE' }));
-  assert.strictEqual(JSON.stringify(r['4342']), JSON.stringify({ car: '1号車', depart: '09:20', staff: '山下' }));
-  assert.strictEqual(JSON.stringify(r['4400']), JSON.stringify({ car: '', depart: '', staff: '' }));
+test('新しい集配管理画面から配達日時・配達スタッフ・配車・出発時間・受付・注文区分を読める', () => {
+  const r = ctx.parseDeliList_(fs.readFileSync(path.join(__dirname, 'fixtures', 'deli_list_new.html'), 'utf8'));
+  assert.strictEqual(r.total, 2);
+  assert.strictEqual(r.amount, 172000);
+  assert.strictEqual(JSON.stringify(r.orders[0]), JSON.stringify({ odid: '4340', status: '確定', date: '2026-10-25', time: '08:30', office: '大阪事業所', staff: 'RISE', orderType: '大阪南海', car: '5号車', depart: '08:00' }));
+  assert.strictEqual(JSON.stringify(r.orders[1]), JSON.stringify({ odid: '4420', status: '確定', date: '2026-10-25', time: '14:00', office: '大阪事業所', staff: '', orderType: '大阪直販', car: '', depart: '' }));
 });
 
 console.log(passed + ' tests passed');
