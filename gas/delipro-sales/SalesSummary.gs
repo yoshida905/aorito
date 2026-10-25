@@ -57,7 +57,9 @@ function dailySalesJob() {
     try {
       const lb = laborDailyCheck_();
       if (lb) {
-        issues.push('【人件費】タイミーのCSVを取り込みました(' + lb.months.join(',') + ')。「人件費_yyyy-MM」シートを確認してください');
+        issues.push('【人件費】勤怠・タイミーのCSVを取り込みました(' + lb.months.join(',') + ')。「人件費_yyyy-MM」シートを確認してください');
+        if (lb.missing.length) issues.push('  時給表に時給がない人: ' + lb.missing.map(function (u) { return u.emp + ' ' + u.name; }).join('、'));
+        if (lb.noSite.length) issues.push('  事業所が決まらない勤怠のCSV: ' + lb.noSite.join('、'));
         lb.unmapped.forEach(function (u) {
           issues.push('  事業所が決まらない求人: ' + u.ym + ' ' + u.title + ' ' + u.count + '件 ' + u.amount.toLocaleString() + '円');
         });

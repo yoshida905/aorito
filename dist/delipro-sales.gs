@@ -107,8 +107,25 @@ const SALES_CONFIG = {
     FOLDER: 'payroll_csv',
     // タイミーの利用明細のCSV → 112行。金額は［合計報酬額］(利用料は含めない)。計上月は［求人日］の月
     // 事業所は［求人タイトル］で決める(上から順に、最初に含まれていた言葉)
+    // マネーフォワード クラウド勤怠の「日次勤怠」のCSV → 111行。金額は 総労働時間×時給 ＋ 法定外×時給×0.25
+    // ＋ 深夜×時給×0.25 ＋ 交通費(1日あたり×出勤日数、または月額)。計上月は日付の月(働いた月)
+    // 時給・交通費は payroll_csv フォルダのスプレッドシート「時給表」に書く(集計用スプレッドシートには書かない)
+    // 事業所はファイル名で決める(上から順に、最初に含まれていた言葉)。時給表の「事業所」欄があればそちらを優先
+    ATTENDANCE: {
+      ROW: 111,
+      FILE_RULES: [
+        { match: '南海', site: '南海' },
+        { match: '大阪GB', site: '関西' },
+        { match: '関西', site: '関西' },
+      ],
+      OVERTIME_RATE: 0.25,
+      NIGHT_RATE: 0.25,
+      WAGE_SHEET: '時給表',
+    },
     TIMEE: {
       ROW: 112,
+      // 利用料(税抜)を入れる行(アルバイト人件費の113行)
+      FEE_ROWS: { 関西: 113, 南海: 113 },
       RULES: [
         { match: '盛付', site: '関西' },
         { match: '盛り付け', site: '関西' },
@@ -392,7 +409,9 @@ function dailySalesJob() {
     try {
       const lb = laborDailyCheck_();
       if (lb) {
-        issues.push('【人件費】タイミーのCSVを取り込みました(' + lb.months.join(',') + ')。「人件費_yyyy-MM」シートを確認してください');
+        issues.push('【人件費】勤怠・タイミーのCSVを取り込みました(' + lb.months.join(',') + ')。「人件費_yyyy-MM」シートを確認してください');
+        if (lb.missing.length) issues.push('  時給表に時給がない人: ' + lb.missing.map(function (u) { return u.emp + ' ' + u.name; }).join('、'));
+        if (lb.noSite.length) issues.push('  事業所が決まらない勤怠のCSV: ' + lb.noSite.join('、'));
         lb.unmapped.forEach(function (u) {
           issues.push('  事業所が決まらない求人: ' + u.ym + ' ' + u.title + ' ' + u.count + '件 ' + u.amount.toLocaleString() + '円');
         });
@@ -1101,70 +1120,247 @@ function summarizeTimee_(text, rules) {
 
 if (typeof module !== 'undefined') module.exports = { isTimeeCsv_, summarizeTimee_ };
 
+/** マネーフォワード クラウド勤怠の日次勤怠のCSVか(見出しで判定) */
+function isAttendanceCsv_(text) {
+  const head = String(text || '').replace(/^﻿/, '').split(/\r?\n/)[0];
+  return head.indexOf('従業員番号') !== -1 && head.indexOf('総労働時間') !== -1;
+}
+
+/** 'hh:mm' を時間(小数)にする */
+function hoursOf_(s) {
+  const m = String(s || '').match(/^(\d+):(\d{2})$/);
+  return m ? Number(m[1]) + Number(m[2]) / 60 : 0;
+}
+
+/**
+ * 日次勤怠のCSVを、1人1日1行で返す
+ * @return {{emp,name,date,ym,total,overtime,night,worked}[]}
+ */
+function parseAttendanceCsv_(text) {
+  const rows = parseCsv_(String(text || '').replace(/^﻿/, ''));
+  const ix = {};
+  rows[0].forEach(function (n, i) { ix[n] = i; });
+  ['従業員番号', '氏名', '日付', '総労働時間', '法定外', '深夜所定', '深夜所定外', '深夜法定外'].forEach(function (n) {
+    if (!(n in ix)) throw new Error('勤怠のCSVに列「' + n + '」がありません');
+  });
+  return rows.slice(1).filter(function (r) { return r.length > 3 && r[ix['日付']]; }).map(function (r) {
+    const total = hoursOf_(r[ix['総労働時間']]);
+    return {
+      emp: r[ix['従業員番号']], name: r[ix['氏名']], date: r[ix['日付']], ym: r[ix['日付']].slice(0, 7).replace('/', '-'),
+      total: total, overtime: hoursOf_(r[ix['法定外']]),
+      night: hoursOf_(r[ix['深夜所定']]) + hoursOf_(r[ix['深夜所定外']]) + hoursOf_(r[ix['深夜法定外']]),
+      worked: total > 0,
+    };
+  });
+}
+
+/**
+ * 勤怠×時給で、月×事業所の人件費を出す。同じ人・同じ日が複数のファイルにあれば、あとのものを使う
+ * @param records [{...parseAttendanceCsv_の1行, site}] site はファイル名から決めた事業所
+ * @param wages { 従業員番号: {wage, dailyFare, monthlyFare, site, exclude} }
+ * @return {{cells:{ym,site,value}[], lines:{ym,site,people,hours,overtime,night,days,amount}[], missing:{ym,emp,name}[]}}
+ *   個人ごとの金額は返さない。missing は時給が登録されていない人(名前だけ)
+ */
+function calcAttendancePay_(records, wages, rates) {
+  const byDay = {};
+  records.forEach(function (r) { byDay[r.emp + '|' + r.date] = r; });
+  const person = {};
+  Object.keys(byDay).forEach(function (k) {
+    const r = byDay[k];
+    const w = wages[r.emp] || {};
+    if (w.exclude) return;
+    const site = w.site || r.site;
+    const pk = r.ym + '|' + site + '|' + r.emp;
+    if (!person[pk]) person[pk] = { ym: r.ym, site: site, emp: r.emp, name: r.name, hours: 0, overtime: 0, night: 0, days: 0 };
+    const p = person[pk];
+    p.hours += r.total;
+    p.overtime += r.overtime;
+    p.night += r.night;
+    if (r.worked) p.days++;
+  });
+  const cellAt = {}, cells = [], lines = [], missing = [];
+  Object.keys(person).sort().forEach(function (pk) {
+    const p = person[pk];
+    if (!p.days) return;
+    const w = wages[p.emp];
+    if (!w || !w.wage) { missing.push({ ym: p.ym, emp: p.emp, name: p.name }); return; }
+    const pay = Math.round(p.hours * w.wage + p.overtime * w.wage * rates.overtime + p.night * w.wage * rates.night)
+      + Math.round((w.dailyFare || 0) * p.days + (w.monthlyFare || 0));
+    const ck = p.ym + '|' + p.site;
+    if (!cellAt[ck]) {
+      cellAt[ck] = { ym: p.ym, site: p.site, value: 0 };
+      cells.push(cellAt[ck]);
+      cellAt[ck].line = { ym: p.ym, site: p.site, people: 0, hours: 0, overtime: 0, night: 0, days: 0, amount: 0 };
+      lines.push(cellAt[ck].line);
+    }
+    const c = cellAt[ck], l = c.line;
+    c.value += pay;
+    l.people++; l.hours += p.hours; l.overtime += p.overtime; l.night += p.night; l.days += p.days; l.amount += pay;
+  });
+  cells.forEach(function (c) { delete c.line; });
+  return { cells: cells, lines: lines, missing: missing };
+}
+
+/** ファイル名から事業所を決める(rules: [{match, site}]) */
+function siteOfFileName_(name, rules) {
+  const r = rules.filter(function (x) { return String(name).indexOf(x.match) !== -1; })[0];
+  return r ? r.site : '';
+}
+
+if (typeof module !== 'undefined') module.exports = Object.assign(module.exports, { isAttendanceCsv_, hoursOf_, parseAttendanceCsv_, calcAttendancePay_, siteOfFileName_ });
+
 // ===== LaborImport.gs =====
 /**
- * アルバイト人件費のCSV(月1回、フォルダ payroll_csv に置く)から、PLの112行(タイミー)を集計する。
+ * アルバイト人件費のCSV(月1回、フォルダ payroll_csv に置く)から、PLの111行(勤怠×時給)・112行(タイミー)・
+ * タイミー利用料の行を集計する。
  * 書き込み先は集計用スプレッドシートのPL転記用シート(PLと同じシート名・同じセル番地)。PLのファイルには書き込まない。
  * 個人の名前・金額はシートに書かず、事業所ごとの合計だけを書く
  */
 
-/** フォルダ内のタイミーのCSVをすべて読み、含まれる月の112行を書く(手動実行・自動実行用。何度実行してもよい) */
+/**
+ * フォルダ内のCSVをすべて読み、含まれる月の111行(勤怠×時給)・112行(タイミー)・タイミー利用料の行を書く
+ * (手動実行・自動実行用。何度実行してもよい)
+ */
 function importLaborCsv() {
   const cfg = SALES_CONFIG.LABOR;
   const sites = SALES_CONFIG.INFOMART.SITES;
-  const r = { cells: [], lines: [], unmapped: [] };
+  const tm = { cells: [], lines: [], unmapped: [] };
   const seen = {};
+  let att = [];
+  const noSite = [];
   laborCsvFiles_().forEach(function (f) {
-    const text = f.getBlob().getDataAsString('UTF-8');
-    if (!isTimeeCsv_(text)) return; // 勤怠のCSVなどは、いまは使わない
-    // 同じ締めの明細を2回置いても二重に数えないよう、ファイル名ごとに1回だけ読む
-    const key = f.getName().replace(/\s*\(\d+\)(?=\.csv$)/i, '');
-    if (seen[key]) return;
-    seen[key] = true;
-    const x = summarizeTimee_(text, cfg.TIMEE.RULES);
-    r.cells = r.cells.concat(x.cells);
-    r.lines = r.lines.concat(x.lines);
-    r.unmapped = r.unmapped.concat(x.unmapped);
+    const utf8 = f.getBlob().getDataAsString('UTF-8');
+    if (isTimeeCsv_(utf8)) {
+      // 同じ締めの明細を2回置いても二重に数えないよう、ファイル名ごとに1回だけ読む
+      const key = f.getName().replace(/\s*\(\d+\)(?=\.csv$)/i, '');
+      if (seen[key]) return;
+      seen[key] = true;
+      const x = summarizeTimee_(utf8, cfg.TIMEE.RULES);
+      tm.cells = tm.cells.concat(x.cells);
+      tm.lines = tm.lines.concat(x.lines);
+      tm.unmapped = tm.unmapped.concat(x.unmapped);
+      return;
+    }
+    const sjis = f.getBlob().getDataAsString('Shift_JIS');
+    if (!isAttendanceCsv_(sjis)) return;
+    const site = siteOfFileName_(f.getName(), cfg.ATTENDANCE.FILE_RULES);
+    if (!site) noSite.push(f.getName());
+    att = att.concat(parseAttendanceCsv_(sjis).map(function (r) { r.site = site; return r; }));
   });
+  const pay = calcAttendancePay_(att, att.length ? readWages_() : {},
+    { overtime: cfg.ATTENDANCE.OVERTIME_RATE, night: cfg.ATTENDANCE.NIGHT_RATE });
   const ss = openSalesSpreadsheet_();
   const months = {};
-  r.lines.concat(r.unmapped).forEach(function (l) { months[l.ym] = true; });
+  tm.lines.concat(tm.unmapped, pay.lines, pay.missing).forEach(function (l) { months[l.ym] = true; });
+  const sum = function (list, ym, site, key) {
+    return list.filter(function (c) { return c.ym === ym && c.site === site; }).reduce(function (a, c) { return a + c[key]; }, 0);
+  };
   Object.keys(months).sort().forEach(function (ym) {
     const col = plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN);
+    const hasTm = tm.lines.concat(tm.unmapped).some(function (l) { return l.ym === ym; });
+    const hasAtt = pay.lines.concat(pay.missing).some(function (l) { return l.ym === ym; });
     Object.keys(sites).forEach(function (site) {
       const sh = ss.getSheetByName(sites[site]) || ss.insertSheet(sites[site]);
       sh.getRange(2, col).setValue(Number(ym.slice(5, 7)) + '月');
-      sh.getRange(cfg.TIMEE.ROW, 2, 1, 2).setValues([['タイミー', 'アルバイト人件費(タイミー・合計報酬額)']]);
-      const v = r.cells.filter(function (c) { return c.ym === ym && c.site === site; })
-        .reduce(function (a, c) { return a + c.value; }, 0);
-      sh.getRange(cfg.TIMEE.ROW, col).setValue(v).setNumberFormat('#,##0');
+      const put = function (row, label, v) {
+        sh.getRange(row, 2, 1, 2).setValues([[label[0], label[1]]]);
+        sh.getRange(row, col).setValue(v).setNumberFormat('#,##0');
+      };
+      if (hasTm) {
+        put(cfg.TIMEE.ROW, ['タイミー', 'アルバイト人件費(タイミー・合計報酬額)'], sum(tm.cells, ym, site, 'value'));
+        if (cfg.TIMEE.FEE_ROWS[site]) put(cfg.TIMEE.FEE_ROWS[site], ['タイミー', 'タイミー利用料(税抜)'], sum(tm.lines, ym, site, 'fee'));
+      }
+      if (hasAtt) put(cfg.ATTENDANCE.ROW, ['勤怠×時給', 'アルバイト人件費(勤怠×時給＋交通費)'], sum(pay.cells, ym, site, 'value'));
     });
-    writeLaborDetail_(ss, ym, r);
+    writeLaborDetail_(ss, ym, tm, pay);
   });
-  Logger.log('タイミー: 月 ' + Object.keys(months).sort().join(',')
-    + (r.unmapped.length ? '。事業所が決まらない求人 ' + r.unmapped.length + '件(「人件費_yyyy-MM」シート)' : ''));
-  return { months: Object.keys(months).sort(), unmapped: r.unmapped };
+  if (noSite.length) Logger.log('事業所が決まらない勤怠のCSV(ファイル名に「南海」か「大阪GB」を入れてください): ' + noSite.join(', '));
+  Logger.log('人件費: 月 ' + Object.keys(months).sort().join(',')
+    + (tm.unmapped.length ? '。事業所が決まらないタイミーの求人 ' + tm.unmapped.length + '件' : '')
+    + (pay.missing.length ? '。時給表に時給がない人 ' + pay.missing.length + '人(「人件費_yyyy-MM」シート)' : ''));
+  return { months: Object.keys(months).sort(), unmapped: tm.unmapped, missing: pay.missing, noSite: noSite };
 }
 
-/** 「人件費_yyyy-MM」シートに、事業所×求人ごとの件数・時間・報酬・利用料を書く(個人ごとには書かない) */
-function writeLaborDetail_(ss, ym, r) {
+/** 「人件費_yyyy-MM」シートに、事業所ごとの合計を書く(個人ごとの金額は書かない) */
+function writeLaborDetail_(ss, ym, tm, pay) {
   const name = '人件費_' + ym;
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
   sh.clear();
-  const out = [['事業所', '求人', '件数', '実働時間', '合計報酬額(PLに入れる額)', '利用料(参考・PLに入れない)']];
-  r.lines.filter(function (l) { return l.ym === ym; }).forEach(function (l) {
-    out.push([l.site, l.title, l.count, l.hours, l.amount, l.fee]);
+  sh.getRange(1, 1).setValue(ym + ' アルバイト人件費(働いた月)・更新 ' + Utilities.formatDate(new Date(), SALES_CONFIG.TIME_ZONE, 'yyyy/MM/dd HH:mm'));
+  let row = 3;
+  const block = function (title, table, moneyCols) {
+    sh.getRange(row, 1).setValue(title).setFontWeight('bold');
+    sh.getRange(row + 1, 1, table.length, table[0].length).setValues(table);
+    sh.getRange(row + 1, 1, 1, table[0].length).setFontWeight('bold').setBackground('#eeeeee');
+    moneyCols.forEach(function (c) { if (table.length > 1) sh.getRange(row + 2, c, table.length - 1, 1).setNumberFormat('#,##0'); });
+    row += table.length + 3;
+  };
+  const a = [['事業所', '人数', '出勤日数', '総労働時間', 'うち法定外', 'うち深夜', '人件費(111行)']];
+  pay.lines.filter(function (l) { return l.ym === ym; }).forEach(function (l) {
+    a.push([l.site, l.people, l.days, Math.round(l.hours * 100) / 100, Math.round(l.overtime * 100) / 100, Math.round(l.night * 100) / 100, l.amount]);
   });
-  sh.getRange(1, 1).setValue(ym + ' タイミー(求人日の月)・更新 ' + Utilities.formatDate(new Date(), SALES_CONFIG.TIME_ZONE, 'yyyy/MM/dd HH:mm'));
-  sh.getRange(3, 1, out.length, out[0].length).setValues(out);
-  sh.getRange(3, 1, 1, out[0].length).setFontWeight('bold').setBackground('#eeeeee');
-  sh.getRange(4, 5, Math.max(out.length - 1, 1), 2).setNumberFormat('#,##0');
-  const miss = r.unmapped.filter(function (u) { return u.ym === ym; });
-  if (!miss.length) return;
-  const m = [['求人', '件数', '合計報酬額', '理由']].concat(miss.map(function (u) {
-    return [u.title, u.count, u.amount, '求人タイトルから事業所が決まらない(Config.gs の LABOR.TIMEE.RULES に足す)'];
-  }));
-  sh.getRange(out.length + 5, 1, m.length, 4).setValues(m).setBackground('#fff2cc');
+  block('■ 勤怠×時給(マネーフォワード)', a, [7]);
+  const t = [['事業所', '求人', '件数', '実働時間', '合計報酬額(112行)', '利用料(税抜)']];
+  tm.lines.filter(function (l) { return l.ym === ym; }).forEach(function (l) { t.push([l.site, l.title, l.count, l.hours, l.amount, l.fee]); });
+  block('■ タイミー', t, [5, 6]);
+  const miss = pay.missing.filter(function (u) { return u.ym === ym; }).map(function (u) { return [u.emp, u.name, '時給表に時給を書いてから再実行']; })
+    .concat(tm.unmapped.filter(function (u) { return u.ym === ym; }).map(function (u) { return ['タイミー', u.title, '求人タイトルから事業所が決まらない(Config.gs の LABOR.TIMEE.RULES)']; }));
+  if (miss.length) {
+    sh.getRange(row, 1).setValue('■ 計算に入っていないもの').setFontWeight('bold');
+    sh.getRange(row + 1, 1, miss.length, 3).setValues(miss).setBackground('#fff2cc');
+  }
+}
+
+/**
+ * payroll_csv フォルダのスプレッドシート「時給表」(なければ作る)に、勤怠のCSVに出てくる人を足す(手動実行)。
+ * 足した人の時給・交通費は空欄なので、書き込んでから importLaborCsv を実行する
+ */
+function prepareWageTable() {
+  const ss = openWageTable_();
+  const sh = ss.getSheets()[0];
+  const have = {};
+  sh.getDataRange().getValues().slice(1).forEach(function (r) { have[String(r[0]).trim()] = true; });
+  const add = [];
+  laborCsvFiles_().forEach(function (f) {
+    const text = f.getBlob().getDataAsString('Shift_JIS');
+    if (!isAttendanceCsv_(text)) return;
+    const site = siteOfFileName_(f.getName(), SALES_CONFIG.LABOR.ATTENDANCE.FILE_RULES);
+    parseAttendanceCsv_(text).forEach(function (r) {
+      if (have[r.emp]) return;
+      have[r.emp] = true;
+      add.push([r.emp, r.name, site, '', '', '', '']);
+    });
+  });
+  if (add.length) sh.getRange(sh.getLastRow() + 1, 1, add.length, 7).setValues(add);
+  Logger.log('時給表に ' + add.length + '人を足しました: ' + ss.getUrl());
+}
+
+/** 時給表を開く(なければ payroll_csv フォルダに作る)。集計用スプレッドシートとは別のファイルにして、共有を分ける */
+function openWageTable_() {
+  const name = SALES_CONFIG.LABOR.ATTENDANCE.WAGE_SHEET;
+  const it = laborFolder_().getFilesByName(name);
+  if (it.hasNext()) return SpreadsheetApp.open(it.next());
+  const ss = SpreadsheetApp.create(name);
+  DriveApp.getFileById(ss.getId()).moveTo(laborFolder_());
+  ss.getSheets()[0].getRange(1, 1, 1, 7).setValues([['従業員番号', '氏名', '事業所(関西/南海。空欄ならファイル名で判定)', '時給', '交通費(1日あたり)', '交通費(月額)', '対象外(社員など。対象外なら「対象外」)']])
+    .setFontWeight('bold');
+  ss.getSheets()[0].getRange('A:A').setNumberFormat('@');
+  return ss;
+}
+
+/** 時給表を読む。{ 従業員番号: {wage, dailyFare, monthlyFare, site, exclude} } */
+function readWages_() {
+  const out = {};
+  openWageTable_().getSheets()[0].getDataRange().getValues().slice(1).forEach(function (r) {
+    const emp = String(r[0]).trim();
+    if (!emp) return;
+    const site = String(r[2]).trim();
+    out[emp] = {
+      wage: Number(r[3]) || 0, dailyFare: Number(r[4]) || 0, monthlyFare: Number(r[5]) || 0,
+      site: site === '関西' || site === '南海' ? site : '', exclude: String(r[6]).trim() === '対象外',
+    };
+  });
+  return out;
 }
 
 /** CSVを置くフォルダ(スクリプトプロパティ LABOR_FOLDER_ID、なければマイドライブの LABOR.FOLDER) */
@@ -1212,14 +1408,17 @@ function compareLaborMonth() {
   if (!plId) throw new Error('スクリプトプロパティ PL_SHEET_ID にPLのスプレッドシートIDを登録してください');
   const ss = openSalesSpreadsheet_();
   const pl = SpreadsheetApp.openById(plId);
-  const row = SALES_CONFIG.LABOR.TIMEE.ROW;
+  const cfg = SALES_CONFIG.LABOR;
   const col = plColumnOf_(ym, SALES_CONFIG.PL_FIRST_MONTH, SALES_CONFIG.PL_FIRST_COLUMN);
   const sites = SALES_CONFIG.INFOMART.SITES;
-  const out = [['事業所', 'PLの行', '項目', 'PL(手入力)', 'タイミー(自動)', '差']];
+  const out = [['事業所', 'PLの行', '項目', 'PL(手入力)', '自動', '差']];
   Object.keys(sites).forEach(function (site) {
-    const auto = Number(ss.getSheetByName(sites[site]).getRange(row, col).getValue()) || 0;
-    const manual = Number(pl.getSheetByName(sites[site]).getRange(row, col).getValue()) || 0;
-    out.push([site, row, 'タイミー', manual, auto, auto - manual]);
+    [[cfg.ATTENDANCE.ROW, 'アルバイト(勤怠×時給)'], [cfg.TIMEE.ROW, 'タイミー'], [cfg.TIMEE.FEE_ROWS[site], 'タイミー利用料']].forEach(function (x) {
+      if (!x[0]) return;
+      const auto = Number(ss.getSheetByName(sites[site]).getRange(x[0], col).getValue()) || 0;
+      const manual = Number(pl.getSheetByName(sites[site]).getRange(x[0], col).getValue()) || 0;
+      out.push([site, x[0], x[1], manual, auto, auto - manual]);
+    });
   });
   const name = '人件費照合_' + ym;
   const sh = ss.getSheetByName(name) || ss.insertSheet(name);
@@ -1230,10 +1429,22 @@ function compareLaborMonth() {
   Logger.log(ym + ': ' + out.slice(1).map(function (x) { return x[0] + ' 差 ' + x[5]; }).join(' / '));
 }
 
-/** PLの112行(タイミー)を、LINK_FROM_MONTH の月から IMPORTRANGE の式に切り替える(手動実行。1回でよい) */
+/**
+ * PLの人件費の行を、LINK_FROM_MONTH の月から IMPORTRANGE の式に切り替える(手動実行)。
+ * 対象はスクリプトプロパティ LINK_LABOR_ROWS(カンマ区切り。例: 111,112,fee)。なければ 112 だけ。fee はタイミー利用料の行
+ */
 function linkPlLaborFormulas() {
+  const cfg = SALES_CONFIG.LABOR;
   const sites = SALES_CONFIG.INFOMART.SITES;
-  linkPlRows_(Object.keys(sites).map(function (site) { return { sheet: sites[site], row: SALES_CONFIG.LABOR.TIMEE.ROW }; }));
+  const keys = (PropertiesService.getScriptProperties().getProperty('LINK_LABOR_ROWS') || '112').split(',').map(function (x) { return x.trim(); });
+  const targets = [];
+  Object.keys(sites).forEach(function (site) {
+    keys.forEach(function (k) {
+      const row = k === 'fee' ? cfg.TIMEE.FEE_ROWS[site] : Number(k);
+      if (row) targets.push({ sheet: sites[site], row: row });
+    });
+  });
+  linkPlRows_(targets);
 }
 
 // ===== DeliListParser.gs =====

@@ -149,3 +149,34 @@ console.log('infomart ok');
   assert.deepStrictEqual(r.unmapped, [{ ym: '2026-10', title: '配送スタッフ募集！', count: 1, amount: 1200 }]);
 }
 console.log('timee ok');
+
+// 勤怠×時給(架空)
+{
+  const { isAttendanceCsv_, hoursOf_, parseAttendanceCsv_, calcAttendancePay_, siteOfFileName_ } = require('../gas/delipro-sales/LaborParser.gs');
+  const H = '従業員番号,氏名,日付,出勤,退勤,総労働時間,所定,所定外,法定外,深夜所定,深夜所定外,深夜法定外';
+  const a = [H,
+    '0001,山田,2026/09/01,08:00,17:00,08:00,08:00,00:00,00:00,00:00,00:00,00:00',
+    '0001,山田,2026/09/02,08:00,19:00,10:00,08:00,00:00,02:00,00:00,00:00,00:00',
+    '0001,山田,2026/09/03,"","",00:00,00:00,00:00,00:00,00:00,00:00,00:00',
+    '0002,佐藤,2026/09/01,21:00,23:30,02:30,02:30,00:00,00:00,00:30,00:00,00:00',
+    '0003,鈴木,2026/09/01,08:00,12:00,04:00,04:00,00:00,00:00,00:00,00:00,00:00',
+    '0004,高橋,2026/09/01,08:00,12:00,04:00,04:00,00:00,00:00,00:00,00:00,00:00',
+  ].join('\r\n');
+  assert.ok(isAttendanceCsv_(a));
+  assert.strictEqual(hoursOf_('08:30'), 8.5);
+  assert.strictEqual(siteOfFileName_('（南海）daily.csv', [{ match: '南海', site: '南海' }]), '南海');
+  const recs = parseAttendanceCsv_(a).map(r => Object.assign(r, { site: '関西' }));
+  // 同じ人・同じ日が別のファイルにもあれば、あとのものを使う
+  const dup = Object.assign({}, recs[0], { total: 9, overtime: 1 });
+  const wages = {
+    '0001': { wage: 1000, dailyFare: 500 },
+    '0002': { wage: 1200, monthlyFare: 3000, site: '南海' },
+    '0004': { wage: 1100, exclude: true },
+  };
+  const r = calcAttendancePay_(recs.concat([dup]), wages, { overtime: 0.25, night: 0.25 });
+  // 0001: (9+10)時間×1000 + 法定外(1+2)×250 + 交通費 500×2日 = 19000+750+1000
+  assert.deepStrictEqual(r.cells.slice().sort((x, y) => x.value - y.value), [{ ym: '2026-09', site: '南海', value: 6150 }, { ym: '2026-09', site: '関西', value: 20750 }]);
+  assert.deepStrictEqual(r.missing, [{ ym: '2026-09', emp: '0003', name: '鈴木' }]);
+  assert.deepStrictEqual(r.lines.find(l => l.site === '関西'), { ym: '2026-09', site: '関西', people: 1, hours: 19, overtime: 3, night: 0, days: 2, amount: 20750 });
+}
+console.log('attendance ok');
