@@ -107,7 +107,7 @@ function prepareWageTable() {
   const ss = openWageTable_();
   const sh = ss.getSheets()[0];
   const have = {};
-  sh.getDataRange().getValues().slice(1).forEach(function (r) { have[String(r[0]).trim()] = true; });
+  sh.getDataRange().getValues().slice(1).forEach(function (r) { have[normalizeEmp_(r[0])] = true; });
   const add = [];
   laborCsvFiles_().forEach(function (f) {
     const text = f.getBlob().getDataAsString('Shift_JIS');
@@ -140,7 +140,7 @@ function openWageTable_() {
 function readWages_() {
   const out = {};
   openWageTable_().getSheets()[0].getDataRange().getValues().slice(1).forEach(function (r) {
-    const emp = String(r[0]).trim();
+    const emp = normalizeEmp_(r[0]);
     if (!emp) return;
     const site = String(r[2]).trim();
     out[emp] = {
@@ -163,6 +163,7 @@ function laborFolder_() {
   return f;
 }
 
+/** フォルダのCSV(古い順。同じ人・同じ日が複数のファイルにあれば、新しいファイルのほうを使うため) */
 function laborCsvFiles_() {
   const out = [];
   const it = laborFolder_().getFiles();
@@ -170,7 +171,7 @@ function laborCsvFiles_() {
     const f = it.next();
     if (/\.csv$/i.test(f.getName())) out.push(f);
   }
-  return out;
+  return out.sort(function (a, b) { return a.getLastUpdated().getTime() - b.getLastUpdated().getTime(); });
 }
 
 /** 毎朝の自動実行から呼ぶ。前回からCSVが置かれたか更新されたときだけ取り込む */

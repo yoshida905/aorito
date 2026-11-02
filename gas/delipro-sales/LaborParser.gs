@@ -64,6 +64,18 @@ function hoursOf_(s) {
   return m ? Number(m[1]) + Number(m[2]) / 60 : 0;
 }
 
+/** 従業員番号をそろえる(Excelで開いて保存すると 0017 が 17 になるため、数字だけなら先頭の0を除く) */
+function normalizeEmp_(s) {
+  const t = String(s == null ? '' : s).normalize('NFKC').trim();
+  return /^\d+$/.test(t) ? String(Number(t)) : t;
+}
+
+/** 日付を yyyy/MM/dd にそろえる(Excelで保存すると 2026/10/01 が 2026/10/1 になるため) */
+function normalizeDate_(s) {
+  const m = String(s || '').match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+  return m ? m[1] + '/' + ('0' + m[2]).slice(-2) + '/' + ('0' + m[3]).slice(-2) : String(s || '');
+}
+
 /**
  * 日次勤怠のCSVを、1人1日1行で返す
  * @return {{emp,name,date,ym,total,overtime,night,worked}[]}
@@ -77,8 +89,9 @@ function parseAttendanceCsv_(text) {
   });
   return rows.slice(1).filter(function (r) { return r.length > 3 && r[ix['日付']]; }).map(function (r) {
     const total = hoursOf_(r[ix['総労働時間']]);
+    const date = normalizeDate_(r[ix['日付']]);
     return {
-      emp: r[ix['従業員番号']], name: r[ix['氏名']], date: r[ix['日付']], ym: r[ix['日付']].slice(0, 7).replace('/', '-'),
+      emp: normalizeEmp_(r[ix['従業員番号']]), name: r[ix['氏名']], date: date, ym: date.slice(0, 7).replace('/', '-'),
       total: total, overtime: hoursOf_(r[ix['法定外']]),
       night: hoursOf_(r[ix['深夜所定']]) + hoursOf_(r[ix['深夜所定外']]) + hoursOf_(r[ix['深夜法定外']]),
       worked: total > 0,
@@ -93,13 +106,15 @@ function parseAttendanceCsv_(text) {
  * @return {{cells:{ym,site,value}[], lines:{ym,site,people,hours,overtime,night,days,amount}[], missing:{ym,emp,name}[]}}
  *   個人ごとの金額は返さない。missing は時給が登録されていない人(名前だけ)
  */
-function calcAttendancePay_(records, wages, rates) {
+function calcAttendancePay_(records, wagesIn, rates) {
+  const wages = {};
+  Object.keys(wagesIn || {}).forEach(function (k) { wages[normalizeEmp_(k)] = wagesIn[k]; });
   const byDay = {};
   records.forEach(function (r) { byDay[r.emp + '|' + r.date] = r; });
   const person = {};
   Object.keys(byDay).forEach(function (k) {
     const r = byDay[k];
-    const w = wages[r.emp] || {};
+    const w = wages[normalizeEmp_(r.emp)] || {};
     if (w.exclude) return;
     const site = w.site || r.site;
     const pk = r.ym + '|' + site + '|' + r.emp;
@@ -114,7 +129,7 @@ function calcAttendancePay_(records, wages, rates) {
   Object.keys(person).sort().forEach(function (pk) {
     const p = person[pk];
     if (!p.days) return;
-    const w = wages[p.emp];
+    const w = wages[normalizeEmp_(p.emp)];
     if (!w || !w.wage) { missing.push({ ym: p.ym, emp: p.emp, name: p.name }); return; }
     const pay = Math.round(p.hours * w.wage + p.overtime * w.wage * rates.overtime + p.night * w.wage * rates.night)
       + Math.round((w.dailyFare || 0) * p.days + (w.monthlyFare || 0));
@@ -139,4 +154,4 @@ function siteOfFileName_(name, rules) {
   return r ? r.site : '';
 }
 
-if (typeof module !== 'undefined') module.exports = Object.assign(module.exports, { isAttendanceCsv_, hoursOf_, parseAttendanceCsv_, calcAttendancePay_, siteOfFileName_ });
+if (typeof module !== 'undefined') module.exports = Object.assign(module.exports, { normalizeEmp_, normalizeDate_, isAttendanceCsv_, hoursOf_, parseAttendanceCsv_, calcAttendancePay_, siteOfFileName_ });

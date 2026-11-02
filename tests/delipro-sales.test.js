@@ -176,7 +176,21 @@ console.log('timee ok');
   const r = calcAttendancePay_(recs.concat([dup]), wages, { overtime: 0.25, night: 0.25 });
   // 0001: (9+10)時間×1000 + 法定外(1+2)×250 + 交通費 500×2日 = 19000+750+1000
   assert.deepStrictEqual(r.cells.slice().sort((x, y) => x.value - y.value), [{ ym: '2026-09', site: '南海', value: 6150 }, { ym: '2026-09', site: '関西', value: 20750 }]);
-  assert.deepStrictEqual(r.missing, [{ ym: '2026-09', emp: '0003', name: '鈴木' }]);
+  assert.deepStrictEqual(r.missing, [{ ym: '2026-09', emp: '3', name: '鈴木' }]);
   assert.deepStrictEqual(r.lines.find(l => l.site === '関西'), { ym: '2026-09', site: '関西', people: 1, hours: 19, overtime: 3, night: 0, days: 2, amount: 20750 });
 }
 console.log('attendance ok');
+
+// Excelで保存した勤怠(先頭の0・日付の0が消える)
+{
+  const { normalizeEmp_, normalizeDate_, parseAttendanceCsv_, calcAttendancePay_ } = require('../gas/delipro-sales/LaborParser.gs');
+  assert.strictEqual(normalizeEmp_('0017'), '17');
+  assert.strictEqual(normalizeEmp_(17), '17');
+  assert.strictEqual(normalizeDate_('2026/10/1'), '2026/10/01');
+  const a = ['従業員番号,氏名,日付,総労働時間,法定外,深夜所定,深夜所定外,深夜法定外', '17,山田,2026/10/1,8:00,0:00,0:00,0:00,0:00'].join('\n');
+  const recs = parseAttendanceCsv_(a).map(r => Object.assign(r, { site: '関西' }));
+  assert.deepStrictEqual([recs[0].emp, recs[0].date, recs[0].ym], ['17', '2026/10/01', '2026-10']);
+  assert.strictEqual(calcAttendancePay_(recs, { '0017': { wage: 1000 } }, { overtime: 0.25, night: 0.25 }).cells[0].value, 8000);
+  assert.strictEqual(calcAttendancePay_(recs, { 17: { wage: 1000 } }, { overtime: 0.25, night: 0.25 }).cells[0].value, 8000);
+}
+console.log('excel ok');
