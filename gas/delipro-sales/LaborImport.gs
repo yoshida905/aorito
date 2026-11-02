@@ -55,10 +55,10 @@ function importLaborCsv() {
         sh.getRange(row, col).setValue(v).setNumberFormat('#,##0');
       };
       if (hasTm) {
-        put(cfg.TIMEE.ROW, ['タイミー', 'アルバイト人件費(タイミー・合計報酬額)'], sum(tm.cells, ym, site, 'value'));
+        put(cfg.TIMEE.ROWS[site], ['タイミー', 'アルバイト人件費(タイミー・合計報酬額)'], sum(tm.cells, ym, site, 'value'));
         if (cfg.TIMEE.FEE_ROWS[site]) put(cfg.TIMEE.FEE_ROWS[site], ['タイミー', 'タイミー利用料(税抜)'], sum(tm.lines, ym, site, 'fee'));
       }
-      if (hasAtt) put(cfg.ATTENDANCE.ROW, ['勤怠×時給', 'アルバイト人件費(勤怠×時給＋交通費)'], sum(pay.cells, ym, site, 'value'));
+      if (hasAtt) put(cfg.ATTENDANCE.ROWS[site], ['勤怠×時給', 'アルバイト人件費(勤怠×時給＋交通費)'], sum(pay.cells, ym, site, 'value'));
     });
     writeLaborDetail_(ss, ym, tm, pay);
   });
@@ -201,7 +201,7 @@ function compareLaborMonth() {
   const sites = SALES_CONFIG.INFOMART.SITES;
   const out = [['事業所', 'PLの行', '項目', 'PL(手入力)', '自動', '差']];
   Object.keys(sites).forEach(function (site) {
-    [[cfg.ATTENDANCE.ROW, 'アルバイト(勤怠×時給)'], [cfg.TIMEE.ROW, 'タイミー'], [cfg.TIMEE.FEE_ROWS[site], 'タイミー利用料']].forEach(function (x) {
+    [[cfg.ATTENDANCE.ROWS[site], 'アルバイト(勤怠×時給)'], [cfg.TIMEE.ROWS[site], 'タイミー'], [cfg.TIMEE.FEE_ROWS[site], 'タイミー利用料']].forEach(function (x) {
       if (!x[0]) return;
       const auto = Number(ss.getSheetByName(sites[site]).getRange(x[0], col).getValue()) || 0;
       const manual = Number(pl.getSheetByName(sites[site]).getRange(x[0], col).getValue()) || 0;
@@ -218,23 +218,41 @@ function compareLaborMonth() {
 }
 
 /**
- * PLの人件費の行を、LINK_FROM_MONTH の月から IMPORTRANGE の式に切り替える(手動実行)。
- * 対象はスクリプトプロパティ LINK_LABOR_ROWS(カンマ区切り。例: 111,112,fee)。なければ 111・112・タイミー利用料の行。
- * fee はタイミー利用料の行。全角の数字やカンマでも読める
+ * PLの人件費の行(アルバイト・タイミーの報酬・タイミーの利用手数料)を、LINK_FROM_MONTH の月から
+ * IMPORTRANGE の式に切り替える(手動実行)。行番号は Config.gs の LABOR(事業所ごと)
  */
 function linkPlLaborFormulas() {
   const cfg = SALES_CONFIG.LABOR;
   const sites = SALES_CONFIG.INFOMART.SITES;
-  const prop = PropertiesService.getScriptProperties().getProperty('LINK_LABOR_ROWS');
-  const keys = String(prop || ('' + cfg.ATTENDANCE.ROW + ',' + cfg.TIMEE.ROW + ',fee')).normalize('NFKC')
-    .split(/[,、\s]+/).map(function (x) { return x.trim(); }).filter(String);
-  Logger.log('対象の行: ' + keys.join(',') + (prop ? '(スクリプトプロパティ LINK_LABOR_ROWS)' : '(LINK_LABOR_ROWS がないため、決まった行)'));
   const targets = [];
   Object.keys(sites).forEach(function (site) {
-    keys.forEach(function (k) {
-      const row = k === 'fee' ? cfg.TIMEE.FEE_ROWS[site] : Number(k);
+    [cfg.ATTENDANCE.ROWS[site], cfg.TIMEE.ROWS[site], cfg.TIMEE.FEE_ROWS[site]].forEach(function (row) {
       if (row) targets.push({ sheet: sites[site], row: row });
     });
   });
+  Logger.log('対象の行: ' + targets.map(function (t) { return t.sheet + '!' + t.row; }).join(', '));
   linkPlRows_(targets);
+}
+
+/**
+ * PLのシートに行を足したとき(例: 関西の77行に名畑)、集計用スプレッドシートの転記用シートにも同じ位置に行を足し、
+ * 取り込みをやり直してから、PLの式(IMPORTRANGE)の参照先を新しい行番号に合わせる(手動実行。1回だけ)。
+ * 先に Config.gs の行番号を新しいPLに合わせておくこと。同じ挿入を2回しないよう、済んだものはスクリプトプロパティに記録する
+ */
+function applyPlRowInsert() {
+  const props = PropertiesService.getScriptProperties();
+  const sheet = SALES_CONFIG.INFOMART.SITES['関西'], row = 77; // 2026/11 名畑の行
+  const key = 'PL_ROW_INSERTED_' + sheet + '_' + row;
+  const ss = openSalesSpreadsheet_();
+  if (!props.getProperty(key)) {
+    ss.getSheetByName(sheet).insertRowBefore(row);
+    props.setProperty(key, Utilities.formatDate(new Date(), SALES_CONFIG.TIME_ZONE, 'yyyy/MM/dd HH:mm'));
+    Logger.log('集計用の「' + sheet + '」の' + row + '行に行を足しました');
+  } else {
+    Logger.log('行の追加は済んでいます(' + props.getProperty(key) + ')。取り込みと式の付け直しだけ行います');
+  }
+  importInfomartCsv();
+  importLaborCsv();
+  linkPlInfomartFormulas();
+  linkPlLaborFormulas();
 }

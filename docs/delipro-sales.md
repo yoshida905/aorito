@@ -117,7 +117,10 @@ CSVはマイドライブの「payroll_csv」フォルダに置きます(ほか�
   時給と交通費は payroll_csv フォルダのスプレッドシート「時給表」に書く(`prepareWageTable` で人の一覧を作る)。
   社員など対象外の人は、時給表の「対象外」欄に「対象外」と書く
 - 取り込みは `importLaborCsv`(翌朝の自動実行でも取り込む)、PLとの照合は `compareLaborMonth`。
-  PLの行を式に切り替えるときは、スクリプトプロパティ `LINK_LABOR_ROWS`(例: 111,112,fee)を書いて `linkPlLaborFormulas`
+  PLの行を式に切り替えるときは `linkPlLaborFormulas`(行番号は Config.gs の `LABOR`。事業所ごと)
+
+PLに行を足したときは、Config.gs の行番号を新しいPLに合わせてから `applyPlRowInsert` を1回実行する
+(集計用の転記用シートにも同じ位置に行を足し、取り込みと式の付け直しをまとめて行う)。
 - 集計シートには、事業所ごと・求人ごとの合計だけを書き、個人の名前や金額は書かない
 
 ## ファイル構成
